@@ -134,7 +134,7 @@ def profile_penalty(params, param_pos):
 
     n_layers = 56
     x = np.linspace(0, 1, n_layers)
-    velocity_raise = generate_profile(params[riase_mask], x)
+    velocity_raise = generate_profile(params[raise_mask], x)
     velocity_fall = generate_profile(params[fall_mask], x)
 
     # Penalty for the sign of profile elements.
@@ -216,7 +216,8 @@ def residue_profile(params, neid_data, synt_spectra=None,
         fall_spectra = None
     residue = (neid_flux_array - synt_spectra) / neid_err_array
     if required == 'residue':
-        residue = np.concatenate(residue, penalty)
+        print("Penalty added: {}".format(penalty))
+        residue = np.concatenate((residue, penalty))
         return residue
     
     elif required == 'spectra':
