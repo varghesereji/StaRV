@@ -137,6 +137,7 @@ def profile_penalty(params, param_pos):
     velocity_raise = generate_profile(params[raise_mask], x)
     velocity_fall = generate_profile(params[fall_mask], x)
 
+    velocity_fall_penalty = np.median(velocity_fall[:5]) * 10000000 # penalty for left edge of falling lane
     # Penalty for the sign of profile elements.
 
     raise_vel_mask = velocity_raise > 0 # Mask for raising velocity. Positive terms will be masked.
@@ -145,7 +146,7 @@ def profile_penalty(params, param_pos):
     raise_prof_penalty = np.sum(np.abs(velocity_raise[raise_vel_mask]))
     fall_prof_penalty = np.sum(np.abs(velocity_fall[fall_vel_mask]))
 
-    prof_penalty = raise_prof_penalty + fall_prof_penalty
+    prof_penalty = np.array([velocity_fall_penalty, raise_prof_penalty, fall_prof_penalty]) *100
     # Penalty for the derivative of profile elements.
     # The negative profile should have negative derivative and
     # Falling should have positive derivative.
@@ -153,15 +154,15 @@ def profile_penalty(params, param_pos):
     raise_der = np.gradient(velocity_raise)
     fall_der = np.gradient(velocity_fall)
 
-    raise_der_mask = raise_der < 0
-    fall_der_mask = fall_der > 0
+    raise_der_mask = raise_der > 0
+    fall_der_mask = fall_der < 0
 
     raise_der_penalty = np.sum(np.abs(raise_der[raise_der_mask]))
     fall_der_penalty = np.sum(np.abs(fall_der[fall_der_mask]))
 
-    der_penalty = raise_der_penalty + fall_der_penalty
-    penalty_array = np.array([prof_penalty, der_penalty]) * 10
-
+    der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000
+    penalty_array = np.concatenate((prof_penalty, der_penalty))
+    print("Penalty: {}".format(penalty_array))
     return penalty_array
     
     
@@ -175,7 +176,7 @@ def residue_profile(params, neid_data, synt_spectra=None,
     params: The model parameters. Parameters for the velocity profiles of raising, falling and scale factor if needed.
     neid_data: Dictionary of the form {"Flux":{#order:...}, "Wave":{#order:...}, "Err":{#order:...}}
     synt_spectra: If a pre-defined synthetic spectra is available, simply do a doppler shift. Use only for one parameter fitting.
-    params_pos: array to separate raising and falling profile parameters. 'r': raise, 'f': fall, 'a': scale factor
+    params_pos: array to separate raising and falling profile parameters. 'r': raise, 'f': fall, 'a': scale factor which is the fractional area of granular region.
     scale_fact: The fractional area of granular region on stellar disk.
     required: 'residue' if need the residue. 'spectra' of the generated spectra is needed.
     '''
@@ -195,10 +196,11 @@ def residue_profile(params, neid_data, synt_spectra=None,
     raise_params = params[raise_mask]
     raise_spectra, raise_cont = synt_spectra_for_wavelength(raise_params, neid_wl_array, synt_spectra=synt_spectra, cont_divide=False)
     fall_spectra = 0
-    penalty = np.array([0, 0])
+    total_cont = raise_cont
+    penalty = np.array([0, 0, 0, 0])
     if np.sum(fall_mask) > 0:
         fall_params = params[fall_mask]
-        stellar_params = {'temp':5570}
+        stellar_params = {'temp':5321} #5570}
         fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params, neid_wl_array, synt_spectra=synt_spectra,
                                                               stellar_params=stellar_params, cont_divide=False)
         if scale_fact is None:
@@ -213,16 +215,15 @@ def residue_profile(params, neid_data, synt_spectra=None,
         penalty = profile_penalty(params, param_pos)
     else:
         synt_spectra = raise_spectra / raise_cont
-        fall_spectra = None
+        fall_spectra = np.nan
     residue = (neid_flux_array - synt_spectra) / neid_err_array
     if required == 'residue':
-        print("Penalty added: {}".format(penalty))
         residue = np.concatenate((residue, penalty))
         return residue
     
     elif required == 'spectra':
-        spectra_dict = {"Raise":raise_spectra/raise_cont,
-                        "Fall":fall_spectra/fall_cont,
+        spectra_dict = {"Raise":a*raise_spectra/total_cont,
+                        "Fall":(1-a)*fall_spectra/total_cont,
                         "Total":synt_spectra,
                         "Res":residue,
                         "Wl":neid_wl_array}
