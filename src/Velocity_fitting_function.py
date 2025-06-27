@@ -120,7 +120,7 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
     shutil.copy("model_functions.py", resultdict)
     shutil.copy(configfile, resultdict)
     print("Model functions copied sucessfully")
-    shutil.copy("Velocity_fitting_function_fakedata.py", resultdict)
+    shutil.copy("Velocity_fitting_function.py", resultdict)
     print("This code copied sucessfully")
     
 
@@ -162,7 +162,8 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             neid_data_dict = generate_fakedata([dead_velocity], snr, fullpath, resultdict)
         else:
             fullpath = os.path.join(maindir, onefile)
-            neid_data_dict = call_neiddata_full(fullpath, resultdict, refspec=korg_data_ref)
+            neid_data_dict = call_neiddata_full(fullpath, resultdict, refspec=korg_data_ref,
+                                                save_interactive_plots=False)
     # print(neid_data_dict)
 
 
@@ -188,13 +189,13 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
     # init_params3 = [0, 0, -0.2] # float(config['fit_init']['INIT_PARAMS'])
     # lower_bounds = [-np.inf, -np.inf, -5]
     # upper_bounds = [np.inf, np.inf, 5]
-    init_params3 = [-0.2, 0.1]
-    lower_bounds = [-5, 0]
-    upper_bounds = [0, 5]
+    init_params3 = [-0.001, -0.001, -0.001, -0.1, 0.001, 0.001, 0.1]
+    lower_bounds = [-np.inf, -np.inf, -np.inf, -5, -np.inf, -np.inf, 0]
+    upper_bounds = [np.inf, np.inf, np.inf, 0, np.inf, np.inf, 5]
     # param_pos = np.array(['r','r','r']) # Mask for one lane model
-    param_pos = np.array(['r','f'])#,'a'])
+    param_pos = np.array(['r', 'r', 'r', 'r', 'f', 'f','f'])#,'a'])
     residue_vel = partial(residue_profile, neid_data=neid_data_dict, synt_spectra=None,
-                          scale_fact=0.47,
+                          scale_fact=0.5,
                           param_pos=param_pos) # korg_data_ref)
     if (purpose=='minimize') or (purpose=='both'):
         if  not os.path.isfile(result_filename):
@@ -229,8 +230,10 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
                 fitted_params3 = pickle.load(opfile)['params']
         korg_spectra = residue_vel(fitted_params3, required='spectra')
 
-        from utils import plotting_spectra
+        from utils import plotting_spectra, plot_lines
         plotting_spectra(neid_data_dict, korg_spectra, resultdict+"/Fitted_spectra.pdf")
+        plot_lines(neid_data_dict, korg_spectra, resultdict+"/Fitted_spectra_lines.pdf", mask_filename='data/Deep_lines.csv')
+        
         if purpose == 'both':
             vel_array = np.linspace(fitted_params3-2*errorvals, fitted_params3+2*errorvals, 200)
             chi2_array = np.array([])
