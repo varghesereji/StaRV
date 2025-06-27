@@ -118,13 +118,13 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
                     # subplot_titles=("Subplot 1", "Subplot 2"),
                     vertical_spacing=0.02
                 )
-                plot_plotly(plotlyfig, filtered_wl, scaled_flux, 1, 1, 'red', 'NEID')
+                # plot_plotly(plotlyfig, filtered_wl, scaled_flux, 1, 1, 'red', 'NEID')
             else:
                 plotlyfig = False
                 
             axs[0].plot(filtered_wl, filtered_flux, color='red', label="NEID")
-            if plotlyfig !=False:
-                plot_plotly(plotlyfig, filtered_wl, filtered_flux, 1, 1, 'red', 'NEID')
+            # if plotlyfig !=False:
+            #     plot_plotly(plotlyfig, filtered_wl, filtered_flux, 1, 1, 'red', 'NEID')
             if scaled_order:
                 scaled_flux, scaled_err = order_scaleing(filtered_flux, filtered_wl, filtered_err, axs,
                                                          korg_spectra=refspec, plotlyfig=plotlyfig,
@@ -343,18 +343,19 @@ def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyf
     axs[2].plot(neid_wl, grad2_korg, color='orange', alpha=0.4, label='d2 Korg')
     
     axs[2].legend()
+    scaled_flux = neid_flux * profile
+    scaled_err = neid_err * profile
 
     if plotlyfig:
         # plot_plotly(plotlyfig, neid_wl, transformed_korg_flux, 1, 1, 'black', "Korg")
         plot_plotly(plotlyfig, neid_wl, transformed_korg_flux, 1, 1, 'black', "Korg")
+        plot_plotly(plotlyfig, neid_wl, scaled_flux, 1, 1, 'red', "Korg")
         # plot_plotly(plotlyfig, neid_wl, profile, 1, 1, 'green', "Scale")
         plot_plotly(plotlyfig, neid_wl, residue, 2, 1, 'black', "residue")
         plot_plotly(plotlyfig, neid_wl, grad_korg, 2, 1, 'green', "d Korg")
         # plot_plotly(plotlyfig, neid_wl, grad2_korg, 3, 1, 'green', "d2 Korg")
         
         
-    scaled_flux = neid_flux * profile
-    scaled_err = neid_err * profile
     return scaled_flux, scaled_err
 
     
@@ -446,12 +447,12 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
         korg_residue_order = korg_residue[neid_wl_mask]
         plot_matplotlib(axs, neid_wls, neid_flux, 0, 0, color="black", label="NEID")
         plot_matplotlib(axs, neid_wls, korg_raise_order, 0, 0, color="red", label="Korg Raise")
-        plot_matplotlib(axs, neid_wls, korg_total_order, 0, 0, color="blue", label="Korg Raise")
-        plot_matplotlib(axs, neid_wls, korg_residue_order, 1, 0, color="blue", label="Korg Raise")
+        plot_matplotlib(axs, neid_wls, korg_total_order, 0, 0, color="blue", label="Korg Total")
+        plot_matplotlib(axs, neid_wls, korg_residue_order, 1, 0, color="blue", label="Residue")
 
         if korg_fall is not None:
             korg_fall_order = korg_fall[neid_wl_mask]
-            plot_matplotlib(axs, neid_wls, korg_fall_order, 0, 0, color="green", label="Korg Raise")
+            plot_matplotlib(axs, neid_wls, korg_fall_order, 0, 0, color="green", label="Korg Fall")
         
 
         axs[0].legend()
@@ -468,6 +469,46 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
     
 
 
+def plot_lines(neid_data, korg_data, filename, mask_filename='data/sol_line_window.csv'):
+
+    # Reading the csv file
+    lines_list = calling_linelist(mask_filename)
+    print(len(lines_list.keys()))
+
+    korg_raise = korg_data["Raise"]
+    korg_fall = korg_data["Fall"]
+    korg_total = korg_data["Total"]
+
+    from model_functions import dict_to_array
+    neid_flux = dict_to_array(neid_data["Flux"])
+
+    fig, axs = plt.subplots(6, 3, figsize=(16, 16))
+
+    index = 0
+    for cent, edges in lines_list.items():
+        wl_array = korg_data['Wl']
+
+        wl_mask = (wl_array > edges[0]) & (wl_array < edges[-1])
+
+        wl_masked = wl_array[wl_mask]
+        raise_masked = korg_raise[wl_mask]
+        fall_masked = korg_fall[wl_mask]
+        total_masked = korg_total[wl_mask]
+
+        neid_masked = neid_flux[wl_mask]
+        
+        axs[index//3, index%3].plot(wl_masked, raise_masked, color='blue')
+        axs[index//3, index%3].plot(wl_masked, fall_masked, color='red')
+        axs[index//3, index%3].plot(wl_masked, total_masked, color='green')
+        axs[index//3, index%3].plot(wl_masked, neid_masked, color='black')
+        index += 1
+    plt.tight_layout()
+    plt.savefig(filename)
+
+        
+
+    
+    
     
 # Example usage
 # my_dict = {'name': 'Alice', 'age': 25, 'city': 'Wonderland'}
