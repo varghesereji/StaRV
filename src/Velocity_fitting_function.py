@@ -68,6 +68,8 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
     wlwinds = (int(wlwinds[0]), int(wlwinds[1]))
     if basename == 'Korg':
         resultsubdir_prefix += "_{}_snr{}_".format(round(dead_velocity, 7), snr)
+    if abs(dead_velocity) != 0:
+        master_subdir += "_{}".format(round(dead_velocity, 7))
     resultdict = os.path.join(srcdir, master_resdir, master_subdir, resultsubdir_prefix + basename + "_{}-{}".format(wlwinds[0], wlwinds[1]))
         # print(fullpath)
     if not os.path.exists(resultdict):
@@ -123,30 +125,6 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
     shutil.copy("Velocity_fitting_function.py", resultdict)
     print("This code copied sucessfully")
     
-
-
-    # cntm_filename = "data/Ratio_3800_9000.pkl"
-    # if os.path.exists(cntm_filename):
-    #     print("The continuums already exists.")
-    #     with open(cntm_filename, 'rb') as korgfile:
-    #         ratio_pkl = pickle.load(korgfile)
-    # else:
-    #     print("Pre-generated data does not exist. Generating now")
-
-    #     cntm1_data = generate_with_korg(np.zeros(56), (3800, 9000), continuum=True)
-    #     cntm1 = cntm1_data['cont']
-    #     cntm2_data = generate_with_korg(np.zeros(56), (3800, 9000), temp=5570, continuum=True)
-    #     cntm2 = cntm2_data['cont']
-    #     wl = cntm2_data['Wl']
-    #     print('Type', type(cntm1))
-    #     ratio = cntm1/cntm2
-    #     ratio_pkl = {'ratio':ratio, 'Wl':wl}
-
-    #     with open(cntm_filename, 'wb') as korgfile:
-    #         pickle.dump(ratio_pkl, korgfile)
-
-    
-
     neid_orders = 115
     #km/s. This is the additional velocity adding to neid spectra.
     neid_data_dict = defaultdict(list)
@@ -162,40 +140,34 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             neid_data_dict = generate_fakedata([dead_velocity], snr, fullpath, resultdict)
         else:
             fullpath = os.path.join(maindir, onefile)
+            # print("Dead velocity {}".format(dead_velocity))
+            # print(fullpath)
             neid_data_dict = call_neiddata_full(fullpath, resultdict, refspec=korg_data_ref,
-                                                save_interactive_plots=False)
+                                                save_interactive_plots=False, ref_velocity=dead_velocity)
     # print(neid_data_dict)
 
 
     # Calling lines
     lines_file_path = '/home/varghese/Desktop/Stellar_activity_mitigation'
-    solar_lines_fname ='FullNeidRange.csv' # 'Solar_lines_gray.csv' #'sol_line_window_modified.csv' #  # 'sol_line_window_modified.csv'
+    solar_lines_fname ='FullNeidRange.csv'
     line_dict = calling_linelist(os.path.join(lines_file_path, solar_lines_fname))
     shutil.copy(os.path.join(lines_file_path, solar_lines_fname), resultdict)
     # korg_data = generate_with_korg(np.zeros(56))
 
     
-    # print("simply calling Korg")
-    # generate_with_korg(velocity=None)
-
-    # residue_scale_factor([0,0,0], neid_data_dict, line_dict, korg_data)
     starttime=time.time()
 
-    v_raise0 = -0.6109816 # fitted_params[0]
-    scale_factor = 1
 
     plot_fname = config['outputs']['SPEC_PRIFIX'] 
-    # To do for single lane one parameter
-    # init_params3 = [0, 0, -0.2] # float(config['fit_init']['INIT_PARAMS'])
-    # lower_bounds = [-np.inf, -np.inf, -5]
-    # upper_bounds = [np.inf, np.inf, 5]
-    init_params3 = [-0.001, -0.001, -0.001, -0.1, 0.001, 0.001, 0.1]
-    lower_bounds = [-np.inf, -np.inf, -np.inf, -5, -np.inf, -np.inf, 0]
-    upper_bounds = [np.inf, np.inf, np.inf, 0, np.inf, np.inf, 5]
-    # param_pos = np.array(['r','r','r']) # Mask for one lane model
-    param_pos = np.array(['r', 'r', 'r', 'r', 'f', 'f','f'])#,'a'])
+
+    # Initial conditions and bounds
+    init_params3 = [-0.001, -0.001, -0.1, -1.0, 0.0]
+    lower_bounds = [-np.inf, -np.inf, -5, -np.inf, -10]
+    upper_bounds = [np.inf, np.inf, 0, 0, 10]
+
+    param_pos = np.array(['r', 'r', 'r', 'a', 'v'])
     residue_vel = partial(residue_profile, neid_data=neid_data_dict, synt_spectra=None,
-                          scale_fact=0.5,
+                          area_fact=0.5,
                           param_pos=param_pos) # korg_data_ref)
     if (purpose=='minimize') or (purpose=='both'):
         if  not os.path.isfile(result_filename):
@@ -212,9 +184,9 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             print(result)
             
             fitted_params3 = result.x
-            # fitted_params3 = [4.93100795e-05, -7.32842107e-05, -1.13824891e+00, 1.32546308e+00, 1.68787459e+00]
+
             print("Fitted_params for third order", result.x)
-            # residue_vel3(params=fitted_params3, plot_lines=True, save_interactive_plot=False)
+
             
             errorvals, cov_matrix = calculate_parameter_errors(result)
             resultdictionary = {'params':fitted_params3,

@@ -17,6 +17,7 @@ import plotly.offline as pyo
 
 from model_functions import generate_with_korg, generate_profile
 from model_functions import synt_spectra_for_wavelength
+from model_functions import shifting_korg_flux
 
 
 def calling_linelist(filename):
@@ -67,7 +68,7 @@ def call_neid_data(order=100, neid_filename='/home/varghese/Desktop/Stellar_acti
 
 
 def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=True, save_interactive_plots=False,
-                       verbose=True):
+                       verbose=False, ref_velocity=0):
     "This function is to call all the orders of neid data"
     '''
     neid_filename: The name of the NEID file.
@@ -95,7 +96,7 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
         # if (173-index) not in index_list:
         #     continue
 
-        print("Working on order {} (index {})".format(173-index, index))
+        # print("Working on order {} (index {})".format(173-index, index))
         neid_wl, neid_flux, neid_err = call_neid_data(index, neid_filename)
         wlmask = np.isnan(neid_wl) | (neid_wl < 1000) | np.isinf(neid_flux) | np.isnan(neid_flux) | np.isnan(neid_err)
         if np.sum(wlmask) == np.size(neid_wl):
@@ -110,6 +111,13 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
             filtered_wl = filtered_wl[telluric_mask]
             filtered_flux = filtered_flux[telluric_mask]
             filtered_err = filtered_err[telluric_mask]
+            # print("Ref velocity {}".format(ref_velocity))
+
+            if abs(ref_velocity) != 0:
+                # print("Applying the doppler shift of {} km/s".format(ref_velocity))
+                filtered_flux = shifting_korg_flux(filtered_wl, filtered_flux, ref_velocity)
+                filtered_err = shifting_korg_flux(filtered_wl, filtered_err, ref_velocity)
+                
             
             fig, axs = plt.subplots(3, sharex=True)
             if save_interactive_plots:

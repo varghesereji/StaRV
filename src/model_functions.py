@@ -137,7 +137,8 @@ def profile_penalty(params, param_pos):
     velocity_raise = generate_profile(params[raise_mask], x)
     velocity_fall = generate_profile(params[fall_mask], x)
 
-    velocity_fall_penalty = np.median(velocity_fall[:5]) * 10000000 # penalty for left edge of falling lane
+    raise_vel_edge_penalty = generate_profile(params[raise_mask], 0)/100# penalty for left edge of Raising lane
+    fall_vel_edge_penalty = generate_profile(params[fall_mask], 0)/100 # penalty for left edge of Falling lane
     # Penalty for the sign of profile elements.
 
     raise_vel_mask = velocity_raise > 0 # Mask for raising velocity. Positive terms will be masked.
@@ -146,7 +147,9 @@ def profile_penalty(params, param_pos):
     raise_prof_penalty = np.sum(np.abs(velocity_raise[raise_vel_mask]))
     fall_prof_penalty = np.sum(np.abs(velocity_fall[fall_vel_mask]))
 
-    prof_penalty = np.array([velocity_fall_penalty, raise_prof_penalty, fall_prof_penalty]) *100
+    prof_penalty = np.array([np.abs(raise_vel_edge_penalty),
+                             np.abs(fall_vel_edge_penalty),
+                             raise_prof_penalty, fall_prof_penalty]) *10000000
     # Penalty for the derivative of profile elements.
     # The negative profile should have negative derivative and
     # Falling should have positive derivative.
@@ -160,7 +163,7 @@ def profile_penalty(params, param_pos):
     raise_der_penalty = np.sum(np.abs(raise_der[raise_der_mask]))
     fall_der_penalty = np.sum(np.abs(fall_der[fall_der_mask]))
 
-    der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000
+    der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000000
     penalty_array = np.concatenate((prof_penalty, der_penalty))
     print("Penalty: {}".format(penalty_array))
     return penalty_array
@@ -168,8 +171,8 @@ def profile_penalty(params, param_pos):
     
 
 def residue_profile(params, neid_data, synt_spectra=None,
-                    param_pos=np.array(['r','f','a']),
-                    scale_fact=None,
+                    param_pos=np.array(['r','f']),
+                    area_fact=0.5, # None,
                     required='residue'):
     '''
     This function is to return the residue of synthetic and observed spectra.
@@ -185,8 +188,14 @@ def residue_profile(params, neid_data, synt_spectra=None,
     # Parameter mask
     raise_mask = param_pos == 'r'
     fall_mask = param_pos == 'f'
+    add_shift_mask = param_pos == 'v' # This is the additional velocity for doppler shift the entire spectra
     scale_mask = param_pos == 'a'
 
+    # Additional velocity
+    if np.sum(add_shift_mask) == 0:
+        add_vel = 0
+    else:
+        add_vel = params[add_shift_mask]
     # Extracting data
     neid_wl_array = dict_to_array(neid_data["Wave"])
     neid_flux_array = dict_to_array(neid_data["Flux"])
@@ -194,25 +203,37 @@ def residue_profile(params, neid_data, synt_spectra=None,
 
     # Generating spectra
     raise_params = params[raise_mask]
+    raise_params[-1] += add_vel
+    # raise_params
     raise_spectra, raise_cont = synt_spectra_for_wavelength(raise_params, neid_wl_array, synt_spectra=synt_spectra, cont_divide=False)
     fall_spectra = 0
     total_cont = raise_cont
     penalty = np.array([0, 0, 0, 0])
+    falling_lane = False
     if np.sum(fall_mask) > 0:
         fall_params = params[fall_mask]
+        falling_lane = True
+        penalty = profile_penalty(params, param_pos)
+    elif (np.sum(fall_mask) == 0) and (np.sum(scale_mask) == 1):
+        params_scale_fact = params[scale_mask]
+        fall_params = params_scale_fact * params[raise_mask]
+        falling_lane = True
+    
+    if falling_lane:
         stellar_params = {'temp':5321} #5570}
+        fall_params[-1] += add_vel
         fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params, neid_wl_array, synt_spectra=synt_spectra,
                                                               stellar_params=stellar_params, cont_divide=False)
-        if scale_fact is None:
-            a = params[scale_mask]
-        else:
-            a = scale_fact
+        # if area_fact is None:
+        #     a = params[scale_mask]
+        # else:
+        #     a = scale_fact
 
-        total_flux = a * raise_spectra + (1-a) * fall_spectra # raise_spectra + ((1-a)/(1+a)) * fall_spectra
-        total_cont = a * raise_cont + (1-a)*fall_cont
+        total_flux = area_fact * raise_spectra + (1-area_fact) * fall_spectra # raise_spectra + ((1-a)/(1+a)) * fall_spectra
+        total_cont = area_fact * raise_cont + (1-area_fact)*fall_cont
         synt_spectra = total_flux / total_cont
 
-        penalty = profile_penalty(params, param_pos)
+
     else:
         synt_spectra = raise_spectra / raise_cont
         fall_spectra = np.nan
@@ -222,8 +243,8 @@ def residue_profile(params, neid_data, synt_spectra=None,
         return residue
     
     elif required == 'spectra':
-        spectra_dict = {"Raise":a*raise_spectra/total_cont,
-                        "Fall":(1-a)*fall_spectra/total_cont,
+        spectra_dict = {"Raise":area_fact*raise_spectra/total_cont,
+                        "Fall":(1-area_fact)*fall_spectra/total_cont,
                         "Total":synt_spectra,
                         "Res":residue,
                         "Wl":neid_wl_array}
