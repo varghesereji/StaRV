@@ -1,3 +1,8 @@
+import sys
+import argparse
+import logging
+import configparser
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
@@ -5,7 +10,6 @@ import time
 import os
 from collections import defaultdict
 import shutil
-import csv
 
 from utils import calling_linelist
 # from utils import call_neid_data, call_neiddata_full
@@ -13,35 +17,27 @@ from utils import call_neiddata_full
 from utils import generate_fakedata
 from utils import save_dict_to_pickle
 
-from functools import *
+from functools import partial
 
-import multiprocessing
 import pickle
 
 # from model_functions import residue_scale_factor
 # from model_functions import residue_velocity_profile
 from model_functions import generate_with_korg
 from model_functions import generate_profile
-from model_functions import shifting_korg_flux
 from model_functions import calculate_parameter_errors
 from model_functions import generate_full_korgspectra
 from model_functions import residue_profile
 
-from scipy.interpolate import CubicSpline
-import juliapkg
 from juliacall import Main as jl
-jl.seval("using Korg"); Korg=jl.Korg
-
-import sys
-import argparse
-import logging
-import configparser
+jl.seval("using Korg")
+Korg = jl.Korg
 
 
-
-
-def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectra=False, dead_velocity=0,
-                            snr=500, purpose='both', logfilesave='T'):
+def velprofile_fit_function(neid_filename, configfile,
+                            save_generated_syntspectra=False, dead_velocity=0,
+                            snr=500, purpose='both', logfilesave='T',
+                            save_ip=False):
     config = configparser.ConfigParser()
     config.read(configfile)
     if neid_filename == 'all':
@@ -50,37 +46,37 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
         basename = 'Korg'
     else:
         basename = os.path.splitext(neid_filename)[0]
-        
 
     script_path = os.path.abspath(__file__)
     srcdir = os.path.dirname(os.path.dirname(script_path))
-    
 
-    master_resdir = config['output_dir']['OP_MAIN'] 
+    master_resdir = config['output_dir']['OP_MAIN']
     master_subdir = config['output_dir']['OP_SUB']
-    
-    if purpose=='debug':
+
+    if purpose == 'debug':
         master_subdir += '_debug'
 
-    resultsubdir_prefix = config['output_dir']['RESDIR_PREFIX'] # 'Result_dir_actualway_'
+    resultsubdir_prefix = config['output_dir']['RESDIR_PREFIX']
     wlwinds = config['inputs']['WL_WINT'].strip().split(', ')
-        
+
     wlwinds = (int(wlwinds[0]), int(wlwinds[1]))
     if basename == 'Korg':
-        resultsubdir_prefix += "_{}_snr{}_".format(round(dead_velocity, 7), snr)
+        resultsubdir_prefix += "_{}_snr{}_".format(round(dead_velocity, 7),
+                                                   snr)
     if abs(dead_velocity) != 0:
         master_subdir += "_{}".format(round(dead_velocity, 7))
-    resultdict = os.path.join(srcdir, master_resdir, master_subdir, resultsubdir_prefix + basename + "_{}-{}".format(wlwinds[0], wlwinds[1]))
-        # print(fullpath)
+    resultdict = os.path.join(srcdir, master_resdir, master_subdir,
+                              resultsubdir_prefix + basename + "_{}-{}".format(
+                                  wlwinds[0], wlwinds[1]))
+    # print(fullpath)
     if not os.path.exists(resultdict):
         os.makedirs(resultdict)
         print(resultdict, "Directory created successfully!")
     else:
         print(resultdict, "Directory already exists!")
 
-
-    logging.basicConfig(filename=resultdict+"/least_squares.log", level=logging.INFO, format="%(asctime)s - %(message)s")
-
+    logging.basicConfig(filename=resultdict+"/least_squares.log",
+                        level=logging.INFO, format="%(asctime)s - %(message)s")
 
     class StreamToLogger:
         """Redirects stdout/stderr to logging"""
@@ -97,16 +93,13 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             pass  # No need to flush for logging
 
     # Redirect stdout and stderr
-    if logfilesave=='T':
+    if logfilesave == 'T':
         sys.stdout = StreamToLogger(logging.getLogger(), logging.INFO)
         sys.stderr = StreamToLogger(logging.getLogger(), logging.ERROR)
 
-    
     result_filename = os.path.join(resultdict, "fitted_params.pkl")
-    # if os.path.isfile(result_filename):
-    #     print("The results already exists. If you want to make new result, change the name of the directory")
-    #     return
-    maindir = config['data_dir']['NEID_DIR'] 
+
+    maindir = config['data_dir']['NEID_DIR']
     korg_data_name = os.path.join("data", config['inputs']['REF_SPEC'])
     if os.path.isfile(korg_data_name):
         print("The reference Korg data already exists. Calling that one")
@@ -114,9 +107,9 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             korg_data_ref = pickle.load(korgspec)
     else:
         print("The reference Korg data does not exist. Generating one.")
-        korg_data_ref =generate_full_korgspectra(velocity=False)
+        korg_data_ref = generate_full_korgspectra(velocity=False)
         save_dict_to_pickle(korg_data_ref, korg_data_name)
-        
+
     print("Resultdict", resultdict)
     shutil.copy("utils.py", resultdict)
     shutil.copy("model_functions.py", resultdict)
@@ -124,9 +117,8 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
     print("Model functions copied sucessfully")
     shutil.copy("Velocity_fitting_function.py", resultdict)
     print("This code copied sucessfully")
-    
-    neid_orders = 115
-    #km/s. This is the additional velocity adding to neid spectra.
+
+    # km/s. This is the additional velocity adding to neid spectra.
     neid_data_dict = defaultdict(list)
     if neid_filename == 'all':
         files_list = [f for f in os.listdir(maindir) if f.endswith(".fits")]
@@ -137,40 +129,40 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
         if onefile == "Korg":
             reference_file = "neidL2_20220514T172101.fits"
             fullpath = os.path.join(maindir, reference_file)
-            neid_data_dict = generate_fakedata([dead_velocity], snr, fullpath, resultdict)
+            neid_data_dict = generate_fakedata([dead_velocity], snr, fullpath,
+                                               resultdict)
         else:
             fullpath = os.path.join(maindir, onefile)
             # print("Dead velocity {}".format(dead_velocity))
             # print(fullpath)
-            neid_data_dict = call_neiddata_full(fullpath, resultdict, refspec=korg_data_ref,
-                                                save_interactive_plots=False, ref_velocity=dead_velocity)
-    # print(neid_data_dict)
-
+            neid_data_dict = call_neiddata_full(fullpath, resultdict,
+                                                refspec=korg_data_ref,
+                                                save_interactive_plots=save_ip,
+                                                ref_velocity=dead_velocity)
 
     # Calling lines
     lines_file_path = '/home/varghese/Desktop/Stellar_activity_mitigation'
-    solar_lines_fname ='FullNeidRange.csv'
-    line_dict = calling_linelist(os.path.join(lines_file_path, solar_lines_fname))
+    solar_lines_fname = 'FullNeidRange.csv'
+    # line_dict = calling_linelist(os.path.join(lines_file_path,
+    # solar_lines_fname))
     shutil.copy(os.path.join(lines_file_path, solar_lines_fname), resultdict)
     # korg_data = generate_with_korg(np.zeros(56))
 
-    
-    starttime=time.time()
-
-
-    plot_fname = config['outputs']['SPEC_PRIFIX'] 
+    # plot_fname = config['outputs']['SPEC_PRIFIX']
 
     # Initial conditions and bounds
-    init_params3 = [-0.001, -0.001, -0.1, -1.0, 0.0]
-    lower_bounds = [-np.inf, -np.inf, -5, -np.inf, -10]
-    upper_bounds = [np.inf, np.inf, 0, 0, 10]
+    init_params3 = [-0.001, -0.001, -0.1, 0.0]
+    lower_bounds = [-np.inf, -np.inf, -5, -10]
+    upper_bounds = [np.inf, np.inf, 0, 10]
 
-    param_pos = np.array(['r', 'r', 'r', 'a', 'v'])
-    residue_vel = partial(residue_profile, neid_data=neid_data_dict, synt_spectra=None,
+    param_pos = np.array(['r', 'r', 'r', 'v'])
+    residue_vel = partial(residue_profile, neid_data=neid_data_dict,
+                          synt_spectra=None,
                           area_fact=0.5,
-                          param_pos=param_pos) # korg_data_ref)
-    if (purpose=='minimize') or (purpose=='both'):
-        if  not os.path.isfile(result_filename):
+                          scale_fact=-1,
+                          param_pos=param_pos)
+    if (purpose == 'minimize') or (purpose == 'both'):
+        if not os.path.isfile(result_filename):
             print("Start fitting")
             result = least_squares(residue_vel, init_params3,
                                    bounds=(lower_bounds, upper_bounds),
@@ -182,19 +174,19 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
                                    loss='soft_l1',
                                    max_nfev=1000)
             print(result)
-            
+
             fitted_params3 = result.x
 
             print("Fitted_params for third order", result.x)
 
-            
             errorvals, cov_matrix = calculate_parameter_errors(result)
-            resultdictionary = {'params':fitted_params3,
+            resultdictionary = {'params': fitted_params3,
                                 'params_err': errorvals,
                                 'cov_matr': cov_matrix}
-            
+
             save_dict_to_pickle(resultdictionary, result_filename)
-            save_dict_to_pickle(result, os.path.join(resultdict, "least_squares_op.pkl"))
+            save_dict_to_pickle(result, os.path.join(resultdict,
+                                                     "least_squares_op.pkl"))
 
         else:
             print("The result already exist. Calling it to plot")
@@ -203,11 +195,16 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
         korg_spectra = residue_vel(fitted_params3, required='spectra')
 
         from utils import plotting_spectra, plot_lines
-        plotting_spectra(neid_data_dict, korg_spectra, resultdict+"/Fitted_spectra.pdf")
-        plot_lines(neid_data_dict, korg_spectra, resultdict+"/Fitted_spectra_lines.pdf", mask_filename='data/Deep_lines.csv')
-        
+        plotting_spectra(neid_data_dict,
+                         korg_spectra, resultdict+"/Fitted_spectra.pdf")
+        plot_lines(neid_data_dict,
+                   korg_spectra, resultdict+"/Fitted_spectra_lines.pdf",
+                   mask_filename='data/Deep_lines.csv')
+
         if purpose == 'both':
-            vel_array = np.linspace(fitted_params3-2*errorvals, fitted_params3+2*errorvals, 200)
+            vel_array = np.linspace(fitted_params3-2*errorvals,
+                                    fitted_params3+2*errorvals,
+                                    200)
             chi2_array = np.array([])
             for vel in vel_array:
                 residue_array = residue_vel([vel[0]])
@@ -227,14 +224,14 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
             print(vel_raise)
             raising_spectra = generate_with_korg(vel_raise)
 
-            generated_spectra = {"Raise":raising_spectra}
+            generated_spectra = {"Raise": raising_spectra}
 
             result_specname = os.path.join(resultdict, "Generated_spectra.pkl")
             save_dict_to_pickle(generated_spectra, result_specname)
-            
+
         print("Results saved in", resultdict)
 
-    elif purpose=='chi2':
+    elif purpose == 'chi2':
         vel_array = np.linspace(dead_velocity-0.002, dead_velocity+0.002, 200)
         chi2_array = np.array([])
         for vel in vel_array:
@@ -252,28 +249,37 @@ def velprofile_fit_function(neid_filename, configfile, save_generated_syntspectr
 
 
 parser = argparse.ArgumentParser(description="Run velprofile fitting.")
-
+ref_fname = "neidL2_20220203T165049.fits"
 # Required positional argument
-parser.add_argument('fname', type=str, help='Input file name')
+parser.add_argument('--fname', type=str,
+                    default=ref_fname, help='Input file name')
 
 # Config file
-parser.add_argument('--config', type=str, default='Spectral_fitting.config', help='Config file name')
+parser.add_argument('--config', type=str,
+                    default='Spectral_fitting.config', help='Config file name')
 # --WL takes 2 values
-# parser.add_argument('--WL', type=float, nargs=2, metavar=('wl_wind1', 'wl_wind2'), default=[3700, 9000], help='Wavelength window (start end)')
 
-# --SNR is optional here, but we will enforce it manually later if fname=="Korg"
-parser.add_argument('--SNR', type=float, help='Signal-to-noise ratio (only needed if fname is Korg)')
 
-parser.add_argument('--LOG', type=str, help='F to display the outputs.', default='T')
+# --SNR is optional here, but we will enforce it manually later
+# if fname=="Korg"
+parser.add_argument('--SNR', type=float,
+                    help='Signal-to-noise ratio (only needed if fname is Korg)')
+
+parser.add_argument('--LOG', type=str,
+                    help='F to display the outputs.', default='T')
 
 # --dead_vel
-parser.add_argument('--dead_vel', type=float, default=0.0, help='Dead velocity')
+parser.add_argument('--dead_vel', type=float,
+                    default=0.0, help='Dead velocity')
 
-parser.add_argument('--purpose', type=str, default='minimize', help='Purpose. (minimize, chi2, both)')
+parser.add_argument('--purpose', type=str,
+                    default='minimize', help='Purpose. (minimize, chi2, both)')
 
+parser.add_argument('--save_ip', type=str,
+                    default='F', help='Save interactive plot (T, F)')
 # Parse args
 args = parser.parse_args()
-print(args)
+# print(args)
 # Unpack WL window
 # wl_wind1, wl_wind2 = args.WL
 
@@ -285,8 +291,19 @@ if args.fname == "Korg" and args.SNR is None:
     print("Error: --SNR must be provided when fname is 'Korg'.")
     sys.exit(1)
 
-# Either use given SNR or a dummy value if not provided (only for non-Korg cases)
-snr_value = args.SNR if args.SNR is not None else 500  # You can also choose not to pass it at all if not needed
+# Either use given SNR or a dummy value if not provided
+# (only for non-Korg cases)
+snr_value = args.SNR if args.SNR is not None else 500
+# You can also choose not to pass it eat all if not needed
+
+ip = args.save_ip
+# print("ip", ip)
+
+if ip == "T" or args.fname == ref_fname:
+    save_ip = True
+else:
+    save_ip = False
+
 
 # Print info
 print("Doing for:", args.fname)
@@ -302,34 +319,11 @@ velprofile_fit_function(
     dead_velocity=args.dead_vel,
     snr=snr_value,  # Only needed for Korg, but passing anyway
     logfilesave=args.LOG,
-    purpose=args.purpose
+    purpose=args.purpose,
+    save_ip=save_ip
 )
 
 
-'''
-if len(sys.argv) > 1:
-    args = sys.argv[1:]
-    fname = args[0] # sys.argv[1]
-    if len(args) > 1:
-        wl_wind1 = args[1]
-        wl_wind2 = args[2]
-        snr = float(args[3])
-        dead_vel = float(args[4])
-    else:
-        wl_wind1 = 4000
-        wl_wind2 = 9000
-        snr = 500
-        dead_vel = -0.1
-    # print(fname)
-    print("Doing for:", fname)
-    velprofile_fit_function(fname, wlwinds=(wl_wind1, wl_wind2), dead_velocity=dead_vel, snr=snr)
-    # for i, arg in enumerate(sys.argv[1:], start=1):
-    #     print(f'Argument {i}: {arg}')
-else:
-    print("No arguments were provided.")
-'''
 print('\a')
 
-
-
-
+# End of code

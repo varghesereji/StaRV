@@ -54,13 +54,18 @@ def shifted_legendre(n, x):
     return eval_legendre(n, x_transformed)
 
 
-def generate_profile(params, x):
+def generate_profile(params, x, param_errs=None):
     vel_profile = 0
+    vel_profile_err = 0
     # print("Generate_profile", params)
     for n, p in enumerate(params[::-1]):
         # print('Deg', n, p)
-        poly_deg = shifted_legendre(n, x)
+        poly_deg = x**n # shifted_legendre(n, x)
         vel_profile += poly_deg * p
+        if param_errs is not None:
+            vel_profile_err += (poly_deg*param_errs[::-1][n]) ** 2
+    if param_errs is not None:
+        return vel_profile, np.sqrt(vel_profile_err)
     return vel_profile
         
 
@@ -79,6 +84,8 @@ def synt_spectra_for_wavelength(velocity, wl_array, synt_spectra=None, stellar_p
     '''
     # print("synt_spectra_for_wavelength", velocity)
     # print("synt_spectra", synt_spectra)
+    temp_layers = np.load("data/Temp_layers.npy")
+    x = (temp_layers - np.min(temp_layers)) / (np.max(temp_layers) - np.min(temp_layers))
     if velocity is None:
         transformed_flux = CubicSpline(synt_spectra['Wl'], synt_spectra['Flux'])(wl_array)
         return transformed_flux
@@ -87,12 +94,12 @@ def synt_spectra_for_wavelength(velocity, wl_array, synt_spectra=None, stellar_p
         velocity = velocity[0]
     if (np.size(velocity) > 1):
         n_layers = 56
-        x = np.linspace(0, 1, n_layers)
+        # x = np.linspace(0, 1, n_layers)
         velocity = generate_profile(velocity, x)
     if synt_spectra is None:
         if isinstance(velocity, (int, float)):
             n_layers = 56
-            x = np.linspace(0, 1, n_layers)
+            # x = np.linspace(0, 1, n_layers)
             velocity = generate_profile([velocity], x)
         # print("Velocity profile", velocity)
         synt_spectra = generate_with_korg(velocity, stellar_params=stellar_params, cont_divide=cont_divide)
@@ -125,31 +132,38 @@ def dict_to_array(dictionary):
     return flattened_values
 
 
-def profile_penalty(params, param_pos):
+def profile_penalty(params=None, param_pos=None, raise_params=None, fall_params=None):
     '''
     Function to estimate the penalty.
     '''
-    raise_mask = param_pos == 'r'
-    fall_mask = param_pos == 'f'
+    if params is not None and param_pos is not None:
+        raise_mask = param_pos == 'r'
+        fall_mask = param_pos == 'f'
+        raise_params = params[raise_mask]
+        fall_params = params[fall_mask]
+    elif raise_params is not None and fall_params is not None:
+        raise_params = raise_params
+        fall_params = fall_params
 
     n_layers = 56
     x = np.linspace(0, 1, n_layers)
-    velocity_raise = generate_profile(params[raise_mask], x)
-    velocity_fall = generate_profile(params[fall_mask], x)
+    velocity_raise = generate_profile(raise_params, x)
+    velocity_fall = generate_profile(fall_params, x)
 
-    raise_vel_edge_penalty = generate_profile(params[raise_mask], 0)/100# penalty for left edge of Raising lane
-    fall_vel_edge_penalty = generate_profile(params[fall_mask], 0)/100 # penalty for left edge of Falling lane
+    # raise_vel_edge_penalty = generate_profile(raise_params, 0)/100# penalty for left edge of Raising lane
+    # fall_vel_edge_penalty = generate_profile(fall_params, 0)/100 # penalty for left edge of Falling lane
     # Penalty for the sign of profile elements.
 
     raise_vel_mask = velocity_raise > 0 # Mask for raising velocity. Positive terms will be masked.
-    fall_vel_mask = velocity_fall < 0 # Mask for falling velocity. Negative terms will be masked.
+    # fall_vel_mask = velocity_fall < 0 # Mask for falling velocity. Negative terms will be masked.
 
     raise_prof_penalty = np.sum(np.abs(velocity_raise[raise_vel_mask]))
-    fall_prof_penalty = np.sum(np.abs(velocity_fall[fall_vel_mask]))
+    # fall_prof_penalty = np.sum(np.abs(velocity_fall[fall_vel_mask]))
 
-    prof_penalty = np.array([np.abs(raise_vel_edge_penalty),
-                             np.abs(fall_vel_edge_penalty),
-                             raise_prof_penalty, fall_prof_penalty]) *10000000
+    # prof_penalty = np.array([np.abs(raise_vel_edge_penalty),
+    #                          np.abs(fall_vel_edge_penalty),
+    #                          raise_prof_penalty, fall_prof_penalty]) *10000000
+    prof_penalty = np.array([raise_prof_penalty])
     # Penalty for the derivative of profile elements.
     # The negative profile should have negative derivative and
     # Falling should have positive derivative.
@@ -161,10 +175,11 @@ def profile_penalty(params, param_pos):
     fall_der_mask = fall_der < 0
 
     raise_der_penalty = np.sum(np.abs(raise_der[raise_der_mask]))
-    fall_der_penalty = np.sum(np.abs(fall_der[fall_der_mask]))
+    # fall_der_penalty = np.sum(np.abs(fall_der[fall_der_mask]))
 
-    der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000000
-    penalty_array = np.concatenate((prof_penalty, der_penalty))
+    # der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000000
+    der_penalty = np.array([raise_der_penalty])
+    penalty_array = np.concatenate((prof_penalty, der_penalty)) * 1000000000
     print("Penalty: {}".format(penalty_array))
     return penalty_array
     
@@ -173,6 +188,7 @@ def profile_penalty(params, param_pos):
 def residue_profile(params, neid_data, synt_spectra=None,
                     param_pos=np.array(['r','f']),
                     area_fact=0.5, # None,
+                    scale_fact=None,
                     required='residue'):
     '''
     This function is to return the residue of synthetic and observed spectra.
@@ -210,12 +226,18 @@ def residue_profile(params, neid_data, synt_spectra=None,
     total_cont = raise_cont
     penalty = np.array([0, 0, 0, 0])
     falling_lane = False
+
     if np.sum(fall_mask) > 0:
         fall_params = params[fall_mask]
         falling_lane = True
-        penalty = profile_penalty(params, param_pos)
-    elif (np.sum(fall_mask) == 0) and (np.sum(scale_mask) == 1):
-        params_scale_fact = params[scale_mask]
+        # penalty = profile_penalty(params, param_pos)
+    elif np.sum(fall_mask) == 0:
+        if (np.sum(scale_mask) == 1) and scale_fact is None:
+            params_scale_fact = params[scale_mask]
+        elif (np.sum(scale_mask) == 0) and scale_fact is not None:
+            params_scale_fact = scale_fact
+    
+    
         fall_params = params_scale_fact * params[raise_mask]
         falling_lane = True
     
@@ -224,6 +246,7 @@ def residue_profile(params, neid_data, synt_spectra=None,
         fall_params[-1] += add_vel
         fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params, neid_wl_array, synt_spectra=synt_spectra,
                                                               stellar_params=stellar_params, cont_divide=False)
+        penalty = profile_penalty(raise_params=params[raise_mask], fall_params=params_scale_fact*params[raise_mask])
         # if area_fact is None:
         #     a = params[scale_mask]
         # else:
