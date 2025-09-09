@@ -298,6 +298,7 @@ def order_scaling_residue(params, neid_flux, neid_wl, neid_err, korg_flux, profi
         residue = (scaled_flux - korg_flux) / neid_err
         # print("Residue", residue, "chi2", np.sum(residue**2))
         # print(residue)
+        print(np.isnan(residue))
         return residue
     else:
         return profile
@@ -357,7 +358,7 @@ def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyf
     if plotlyfig:
         # plot_plotly(plotlyfig, neid_wl, transformed_korg_flux, 1, 1, 'black', "Korg")
         plot_plotly(plotlyfig, neid_wl, transformed_korg_flux, 1, 1, 'black', "Korg")
-        plot_plotly(plotlyfig, neid_wl, scaled_flux, 1, 1, 'red', "Korg")
+        plot_plotly(plotlyfig, neid_wl, scaled_flux, 1, 1, 'red', "NEID")
         # plot_plotly(plotlyfig, neid_wl, profile, 1, 1, 'green', "Scale")
         plot_plotly(plotlyfig, neid_wl, residue, 2, 1, 'black', "residue")
         plot_plotly(plotlyfig, neid_wl, grad_korg, 2, 1, 'green', "d Korg")
@@ -514,6 +515,15 @@ def plot_lines(neid_data, korg_data, filename, mask_filename='data/sol_line_wind
     plt.savefig(filename)
 
         
+def plot_profile(params, params_errs, ax, **kwargs):
+    temp_array = np.load("data/Temp_layers.npy")
+    # x = np.linspace(0, 1, np.shape(temp_array)[0])
+    x = (temp_array - np.min(temp_array)) / (np.max(temp_array) - np.min(temp_array))
+    vel_profile = generate_profile(params, x)
+    # vel_var = generate_profile_err(params_errs, x)
+    # vel_err = np.sqrt(vel_var)
+    ax.plot(temp_array, vel_profile, **kwargs)
+    # ax.fill_between(temp_array, vel_profile-vel_err, vel_profile+vel_err, **kwargs, alpha=0.3)
 
     
     
