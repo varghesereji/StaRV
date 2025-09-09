@@ -189,7 +189,8 @@ def residue_profile(params, neid_data, synt_spectra=None,
                     param_pos=np.array(['r','f']),
                     area_fact=0.5, # None,
                     scale_fact=None,
-                    required='residue'):
+                    required='residue',
+                    ip_data='epoch'):
     '''
     This function is to return the residue of synthetic and observed spectra.
     params: The model parameters. Parameters for the velocity profiles of raising, falling and scale factor if needed.
@@ -198,9 +199,14 @@ def residue_profile(params, neid_data, synt_spectra=None,
     params_pos: array to separate raising and falling profile parameters. 'r': raise, 'f': fall, 'a': scale factor which is the fractional area of granular region.
     scale_fact: The fractional area of granular region on stellar disk.
     required: 'residue' if need the residue. 'spectra' of the generated spectra is needed.
+    ip_data: epoch or average. If epoch, the difference from the result of average will be taken.
     '''
     print("Params: {}".format(params))
-
+    avgepoch_result = "/home/varghese/Desktop/Stellar_activity_mitigation/25_Avg/Result_dead_vel/Result_dir_Comb_spectra_3700-9000/fitted_params.pkl"
+    if ip_data == 'epoch':
+        with open(avgepoch_result, 'rb') as avgres:
+            avgepo = pickle.load(avgres)
+        params = params + avgepo['params']
     # Parameter mask
     raise_mask = param_pos == 'r'
     fall_mask = param_pos == 'f'
