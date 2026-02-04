@@ -10,6 +10,7 @@ from functools import *
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import airvacuumvald as avv
+import shutil
 # import mpld3
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -19,6 +20,7 @@ from model_functions import generate_with_korg, generate_profile
 from model_functions import synt_spectra_for_wavelength
 from model_functions import shifting_korg_flux
 
+from PRVccf.modules import neid_calculate_mask_RV
 
 def calling_linelist(filename):
     '''
@@ -42,7 +44,7 @@ def calling_linelist(filename):
 
 def call_neid_data(order=100, neid_filename='/home/varghese/Desktop/Stellar_activity_mitigation/neidL2_20220110T180951.fits'):
     '''
-    This function is to call NEID data, continuum divided using RASSINE.
+    This function is to call NEID data.
     Input is the order of the spectra. It call the corresponding file, and extract the flux and wavelength.
     '''
 
@@ -52,9 +54,14 @@ def call_neid_data(order=100, neid_filename='/home/varghese/Desktop/Stellar_acti
     # print("NEID filename: {}".format(neid_filename))
     neid_flux = fits.getdata(neid_filename, ext=1)[order]# [~fsr_mask]
     neid_var = fits.getdata(neid_filename, ext=4)[order]# [~fsr_mask]
-    sciblaze = fits.getdata(master_file, ext=15)[order]# [~fsr_mask]
+    sciblaze = fits.getdata(neid_filename, ext=15)[order]# [~fsr_mask]
     wl = fits.getdata(neid_filename, ext=7)[order]# [~fsr_mask]
+    # print(wl, np.all(fsr_mask))
+    # np.set_printoptions(threshold=np.inf)
+    # print(fsr_mask)
     wl = np.ma.MaskedArray(wl, fsr_mask).filled(np.nan)
+    # np.set_printoptions(threshold=np.inf)
+    # print("masked", wl)
     scaled_flux = neid_flux / sciblaze # / neid_flux[0]
     scaled_var = neid_var / sciblaze**2 # (np.nanmedian(neid_flux))**2
     flux_err = np.sqrt(scaled_var)
@@ -64,6 +71,7 @@ def call_neid_data(order=100, neid_filename='/home/varghese/Desktop/Stellar_acti
     zfact = fits.getheader(neid_filename)['SSBZ'+strnum]
     # print("SSSBZ{}:{}".format(strnum, zfact))
     # print("Wl array after multiply", wl.astype(np.float64)*(1+zfact))
+    # print(zfact)
     return wl.astype(np.float64)*(1+zfact), scaled_flux, flux_err.astype(np.float64)
 
 
@@ -90,14 +98,22 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
     # )
     buttons = []
     # index_list = [88, 87, 86, 85, 84, 80]
+    skip_order = [75]
+    # shifted_flux_array = fits.getdata(neid_filename, ext=1).copy()
+    # shifted_var_array = fits.getdata(neid_filename, ext=4).copy()
+    # print(shifted_flux_array, 'before_shift')
     for index in range(neid_arrays):
         if ((173-index) < 70) or ((173-index) > 162) :# 69 165):
             continue
-        # if (173-index) not in index_list:
-        #     continue
+        if (173-index) in skip_order:
+            continue
 
         # print("Working on order {} (index {})".format(173-index, index))
         neid_wl, neid_flux, neid_err = call_neid_data(index, neid_filename)
+        # np.set_printoptions(threshold=np.inf)
+        # print('neid err', neid_err)
+        # print(neid_wl.size)
+        # print(np.sum(np.isnan(neid_wl)), np.sum(np.isinf(neid_flux)), np.sum(np.isnan(neid_flux)))
         wlmask = np.isnan(neid_wl) | (neid_wl < 1000) | np.isinf(neid_flux) | np.isnan(neid_flux) | np.isnan(neid_err)
         if np.sum(wlmask) == np.size(neid_wl):
             print("This index is not useful")
@@ -108,16 +124,23 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
 
             telluric_mask = mask_creation(filtered_wl)
             
-            filtered_wl = filtered_wl[telluric_mask]
-            filtered_flux = filtered_flux[telluric_mask]
-            filtered_err = filtered_err[telluric_mask]
             # print("Ref velocity {}".format(ref_velocity))
 
             if abs(ref_velocity) != 0:
-                # print("Applying the doppler shift of {} km/s".format(ref_velocity))
+                # np.set_printoptions(threshold=np.inf)
+                # print("Applying the doppler shift of {} km/s, order {}".format(ref_velocity, 173-index))
+                # print('before', filtered_flux)
+                # filetred_flux_orig = filtered_flux.copy()
                 filtered_flux = shifting_korg_flux(filtered_wl, filtered_flux, ref_velocity)
                 filtered_err = shifting_korg_flux(filtered_wl, filtered_err, ref_velocity)
+                # print('after', 173-index, filtered_flux - filetred_flux_orig)
+                # shifted_flux_array[index][~wlmask] = filtered_flux
+                # shifted_var_array[index][~wlmask] = filtered_err**2
                 
+            filtered_wl = filtered_wl[telluric_mask]
+            filtered_flux = filtered_flux[telluric_mask]
+            filtered_err = filtered_err[telluric_mask]
+
             
             fig, axs = plt.subplots(3, sharex=True)
             if save_interactive_plots:
@@ -184,12 +207,54 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
             # html_str = mpld3.fig_to_html(fig)
             # with open(resultdict+"/Spectra/NEID_spectra_comparison{}.html".format(173-index), 'w') as f:
             #     f.write(html_str)
+    # hdul = fits.open(neid_filename, mode='update')
+    # print("Saving {} with doppler shift".format(neid_filename))
+    # print(shifted_flux_array, "after")
+    # hdul[1].data = shifted_flux_array
+    # hdul[1].header.add_history("Replaced with shifted flux array")
+    # hdul[4].data = shifted_var_array
+    # hdul.flush()
+    # hdul.close()
     pdf.close()
     # html_str = mpld3.fig_to_html(fig)
     # with open(resultdict+"/NEID_spectra_comparison.html", 'w') as f:
     #     f.write(html_str)
     return neid_data
 
+
+def inject_vel_neidata(neid_fname, inj_vel=0):
+    flux = fits.getdata(neid_fname, ext=1)
+    var = fits.getdata(neid_fname, ext=4)
+    wl = fits.getdata(neid_fname, ext=7)
+    # np.set_printoptions(threshold=np.inf)
+    # print(np.diff(wl[173-127]))
+    for index, flux_ord in enumerate(flux):
+        if ((173-index) < 70) or ((173-index) > 162) :# 69 165):
+            continue
+
+        var_ord = var[index]
+        wl_ord = wl[index]
+        mask = ~np.isnan(wl_ord) & ~np.isnan(flux_ord) & ~np.isnan(var_ord) & (wl_ord > 3500) & ~np.isinf(flux_ord)
+        # print(173-index, np.sum(~mask), np.size(wl_ord))
+        # np.set_printoptions(threshold=np.inf)
+        # print(wl_ord[mask])
+        if np.sum(~mask) == np.size(wl_ord):
+            continue
+        shifted_flux = shifting_korg_flux(wl_ord[mask], flux_ord[mask], inj_vel)
+        shifted_var = shifting_korg_flux(wl_ord[mask], var_ord[mask], inj_vel)
+        # print(shifted_flux - flux_ord[mask])
+        flux_ord[mask] = shifted_flux
+        var_ord[mask] = shifted_var
+        flux[index] = flux_ord
+        var[index] = var_ord
+    hdul = fits.open(neid_fname, mode='update')
+    print("Saving {} with doppler shift".format(neid_fname))
+    hdul[1].data = flux
+    hdul[1].header.add_history("Replaced with shifted flux array, vel {} km/s".format(inj_vel))
+    hdul[4].data = var
+    hdul.flush()
+    hdul.close()
+    
 
 def generate_fakedata(velocity_params, snr, reference_file, resultdict):
     '''
@@ -207,7 +272,7 @@ def generate_fakedata(velocity_params, snr, reference_file, resultdict):
         return korg_result
 
     print("Generating fake data with velocity params {}, SNR {}".format(velocity_params, snr))
-    vel_profile = generate_profile(velocity_params, np.linspace(0, 1, 56))
+    vel_profile = generate_profile(velocity_params, np.linspace(0, 1, 56), purpose='profile')
     print("vel_profile", vel_profile)
     reference_data = call_neiddata_full(reference_file, resultdict, scaled_order=False)
     reference_wls = reference_data["Wave"]
@@ -289,22 +354,20 @@ def order_scaling_residue(params, neid_flux, neid_wl, neid_err, korg_flux, profi
     mapped_wlarr = shifted_wlarr / np.nanmax(shifted_wlarr)
     # print(neid_wl)
     # print(mapped_wlarr)
-    profile = generate_profile(params, mapped_wlarr)
+    profile = generate_profile(params, mapped_wlarr, purpose='scaling')
     if profile_fitting:
         # print('profile_fitting')
         # print(params)
-        # print(profile)
         scaled_flux = neid_flux * profile
         residue = (scaled_flux - korg_flux) / neid_err
         # print("Residue", residue, "chi2", np.sum(residue**2))
         # print(residue)
-        print(np.isnan(residue))
+        # print(np.isnan(residue))
         return residue
     else:
         return profile
     
 
-    
 
 
 def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyfig=None,verbose=True):
@@ -373,7 +436,7 @@ def mask_creation(wavelengths):
     This function is to generate a mask for telluric regions
     '''
     masking_region = []
-    with open('data/Masked_regions.csv', newline='') as csvfile:
+    with open('data/Masked_regions_modified.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)
         for row in reader:
@@ -390,8 +453,159 @@ def mask_creation(wavelengths):
     return mask
     
 
+
+def save_synt_data(params, neid_fname, opdir, save_interactive_plots=False):
+    directory, filename = os.path.split(neid_fname)
+    prefix = "Synt_"
+    new_filename = prefix + filename
+    dst = os.path.join(opdir, new_filename)
+    shutil.copy(neid_fname, dst)
+    # synt_data = os.path.join(opdir, filename)
+    blaze_array = fits.getdata(neid_fname, ext=15)
+    if not os.path.isfile(os.path.join(opdir, "Data_CCF.fits")):
+        os.makedirs(os.path.join(opdir, "CCFs"))
+        make_ccf(neid_fname, "Data_CCF.fits", opdir, os.path.join(opdir, "CCFs", filename))
+        os.remove(os.path.join(opdir, filename))
+    print("###############33Data using################33", os.path.join(opdir, "CCFs", filename), os.path.isfile(os.path.join(opdir, "CCFs", filename)))
+    if os.path.isfile(os.path.join(opdir, "CCFs", filename)):
+        os.remove(os.path.join(opdir, "CCFs", filename))
+        print(os.path.join(opdir, "CCFs", filename), "removed")
+        os.rmdir(os.path.join(opdir, "CCFs"))
+    if os.path.isfile(os.path.join(opdir, "Synt_CCF.fits")):
+        print("CCF file already exists")
+    else:
+        print("CCF file does not exist. Making now")
+        print("Calling ", dst)
+        neid_arrays = 121
+        new_flux_array = fits.getdata(dst, ext=1).copy()
+        original_flux_array = fits.getdata(dst, ext=1).copy() # duplicated for plotting
+        neid_data = call_neiddata_full(dst, opdir, scaled_order=False)
+        
+        # if save_interactive_plots:
+        #     plotlyfig = make_subplots(
+        #         rows=2, cols=1, shared_xaxes=True,
+        #         vertical_spacing=0.02
+        #         )
+        # else:
+        #     plotlyfig = False
+        from model_functions import residue_profile
+        
+        synt_spectra = residue_profile(params, neid_data,
+                                       param_pos=np.array(['r', 'r', 'r', 'v']),
+                                       scale_fact=-1,
+                                       area_fact=0.5,
+                                       contnorm=False,
+                                       pca_comp=False,
+                                       required='spectra')
+        if save_interactive_plots:
+            pickle.dump(synt_spectra, open(os.path.join(opdir, "Synthetic_spectra.pkl"), "wb"))
+            
+            # print(synt_spectra)
+            # from spectral_synthesis_functions import generate_with_korg
+            
+            # synt_spectra = generate_with_korg(velocity=False, cont_divide=False)
+        synt_flux = synt_spectra['Total'] # ['Flux'] # ['Total']
+        synt_flux = synt_flux / np.nanmedian(synt_flux)
+        wl = synt_spectra['Wl']
+        sort_mask = np.argsort(wl)
+        synt_flux = synt_flux[sort_mask]
+        wl = wl[sort_mask]
+        spline = CubicSpline(wl, synt_flux, extrapolate=True)
+        # print(neid_data)
+        hdul = fits.open(dst, mode='update')
+        header = hdul[0].header
+        new_wl_data = hdul[7].data
+        for index in range(neid_arrays):
+            # print(index)
+
+            neid_wl_order = new_wl_data[index] # fits.getdata(dst, ext=7)[index]
+            strnum = str(173-index)
+            while len(strnum) < 3:
+                strnum = '0' + strnum
+
+            zfact = header['SSBZ' + strnum]
+            neid_wl_order = neid_wl_order.astype(np.float64) * (1+zfact)
+            hdul[0].header['SSBZ' + strnum] = 0
+            if np.nanmax(neid_wl_order) < 3600:
+                continue
+            elif np.nanmin(neid_wl_order) > 10000:
+                continue
+            synt_flux_order = spline(neid_wl_order)
+            # print('orig', new_flux_array[index])
+            # print('synt', synt_flux_order)
+            new_flux_array[index] = synt_flux_order * blaze_array[index]
+            # print("Flux replaced for index", index)
+            new_wl_data[index] = neid_wl_order
+            save_interactive_plots = False
+            if save_interactive_plots:
+                plotlyfig = make_subplots(
+                    rows=2, cols=1, shared_xaxes=True,
+                    vertical_spacing=0.02
+                    )
+                plot_plotly(plotlyfig, neid_wl_order, synt_flux_order * blaze_array[index], 1, 1, 'black', "Korg")
+                plot_plotly(plotlyfig, neid_wl_order, original_flux_array[index], 2, 1, 'red', "NEID")
+                spectra_dir = os.path.join(opdir, "Spectra")
+                if not os.path.exists(spectra_dir):
+                    os.makedirs(spectra_dir)
+                pyo.plot(plotlyfig, filename=spectra_dir+"/Fitted_spectra_comparison_order{}.html".format(173-index))
+            # hdul.flush()
+            # hdul.close()
+
+        # hdul = fits.open(dst, mode="update")
+        upext = 1
+        hdul[upext].data = new_flux_array
+        hdul[upext].header.add_history("Replaced flux array with synthetic flux")
+        wlext = 7
+        hdul[wlext].data = new_wl_data
+        hdul[wlext].header.add_history("Replaced wavelength array with barycorrected wavelengths. SSBZ values kept 0")
+
+        hdul.flush()
+        hdul.close()
+
+        # fsr_mask = '../neidMaster_FSR_Mask20210218_v002.fits'
+        # neid_calculate_mask_RV.main([dst,
+        #                              opdir,
+        #                              '/home/varghese/Desktop/CCF_package/PRVccf_Oct2025/PRVccf-master/PRVccf/config/neid_calculate_ccf.config',
+        #                              '/home/varghese/Desktop/CCF_package/NEIDDRP_MasterFiles/neidMaster_StarDB_v000.config',
+        #                              '--FSRMaskFile', fsr_mask])
+
+        synt_data = os.path.join(opdir, filename)
+        make_ccf(dst, "Synt_CCF.fits", opdir, synt_data)
+        # opfname = os.path.join(opdir, "Synt_CCF.fits")
+        # ext_to_keep = 12
+        # with fits.open(synt_data, mode='readonly') as hdul:
+        #     # Create a new HDUList with only the desired extension
+        #     hdu_to_keep = hdul[ext_to_keep]
+
+        #     primary_hdu = fits.PrimaryHDU(hdu_to_keep.data,
+        #                                   header=hdu_to_keep.header)  # empty primary header
+        #     # new_hdul = fits.HDUList([primary_hdu])
+        #     primary_hdu.writeto(opfname, overwrite=True)
+        #     print(f"Saved {opfname} with only extension {ext_to_keep}")
+        print("Deleting", synt_data)
+        os.remove(synt_data)
+        os.remove(dst)
+
+
+def make_ccf(ipfname, opfname, opdir, generated_fname):
+    print("making CCF for", ipfname)
     
-    
+    fsr_mask = '../neidMaster_FSR_Mask20210218_v002.fits'
+    # os.makedirs(os.path.join(opdir, "CCFs"))
+    neid_calculate_mask_RV.main([ipfname,
+                                 os.path.join(opdir, "CCFs"),
+                                 '/home/varghese/Desktop/CCF_package/PRVccf_Oct2025/PRVccf-master/PRVccf/config/neid_calculate_ccf.config',
+                                 '/home/varghese/Desktop/CCF_package/NEIDDRP_MasterFiles/neidMaster_StarDB_v000.config',
+                                 '--FSRMaskFile', fsr_mask])
+    opfname = os.path.join(opdir, opfname)
+    ext_to_keep = 12
+    with fits.open(generated_fname, mode='readonly') as hdul:
+        hdu_to_keep = hdul[ext_to_keep]
+        primary_hdu = fits.PrimaryHDU(hdu_to_keep.data,
+                                      header=hdu_to_keep.header)
+        primary_hdu.writeto(opfname, overwrite=True)
+        print(f"Saved {opfname} with only extension {ext_to_keep} inside the function")
+        
 
 def save_dict_to_pickle(dictionary, file_path):
     """
@@ -437,7 +651,7 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
     korg_total = korg_data["Total"]
     korg_residue = korg_data["Res"]
     korg_wl = korg_data["Wl"]
-
+    opdir = os.path.split(filename)[0]
     for order in orders_list:
         fig, axs = plt.subplots(2, figsize=(16, 8), sharex=True)
         neid_flux = neid_data["Flux"][order]
@@ -458,7 +672,41 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
         plot_matplotlib(axs, neid_wls, korg_raise_order, 0, 0, color="red", label="Korg Raise")
         plot_matplotlib(axs, neid_wls, korg_total_order, 0, 0, color="blue", label="Korg Total")
         plot_matplotlib(axs, neid_wls, korg_residue_order, 1, 0, color="blue", label="Residue")
-
+        print("Fitted_spectra", order, "saved")
+        # print("interactive", interactive)
+        if interactive:
+            plotlyfig = make_subplots(
+                rows=2, cols=1, shared_xaxes=True,
+                vertical_spacing=0.2
+                )
+            print("Saving interactive plot")
+            plot_plotly(plotlyfig, neid_wls, neid_flux, 1, 1, 'black', "NEID")
+            plot_plotly(plotlyfig, neid_wls, korg_raise_order, 1, 1, 'red', "NEID")
+            if korg_fall is not None:
+                korg_fall_order = korg_fall[neid_wl_mask]
+                plot_plotly(plotlyfig, neid_wls, korg_fall_order, 1, 1, 'blue', "NEID")
+            plot_plotly(plotlyfig, neid_wls, korg_total_order, 1, 1, 'green', "NEID")
+            spectra_dir = os.path.join(opdir, "Spectra")
+            if not os.path.exists(spectra_dir):
+                os.makedirs(spectra_dir)
+            html_path = spectra_dir+"/Fitted_spectra_order{}.html".format(order)
+            pyo.plot(plotlyfig, filename=html_path)
+            with open(html_path, "a") as f:
+                f.write("""
+                <script>
+                document.addEventListener("DOMContentLoaded", function () {
+                var plot = document.getElementsByClassName("js-plotly-plot")[0];
+                
+                plot.on('plotly_click', function(data){
+                var xval = data.points[0].x;
+                console.log("Clicked x:", xval);
+                navigator.clipboard.writeText(xval);
+                alert("Copied: " + xval);
+                });
+                });
+                </script>
+                """)
+            
         if korg_fall is not None:
             korg_fall_order = korg_fall[neid_wl_mask]
             plot_matplotlib(axs, neid_wls, korg_fall_order, 0, 0, color="green", label="Korg Fall")
@@ -467,10 +715,12 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
         axs[0].legend()
         plt.subplots_adjust(wspace=0, hspace=0)
 
-        fig.suptitle("NEID spectra order {}".format(order))
-        axs[1].set_xlabel("Wavelength $\AA$")
-        axs[0].set_ylabel("Flux")
-        axs[1].set_ylabel("Residue")
+        fig.suptitle("NEID spectra order {}".format(order), fontweight='bold')
+        axs[1].set_xlabel("Wavelength $\AA$", fontsize=16, fontweight='bold')
+        axs[0].set_ylabel("Flux", fontsize=16, fontweight='bold')
+        axs[1].set_ylabel("Residue", fontsize=16, fontweight='bold')
+        axs[1].tick_params(axis='both', which='major', labelsize=16)
+        axs[0].tick_params(axis='both', which='major', labelsize=16)
         plt.tight_layout()
         pdf.savefig()
         plt.close()
@@ -489,9 +739,12 @@ def plot_lines(neid_data, korg_data, filename, mask_filename='data/sol_line_wind
     korg_total = korg_data["Total"]
 
     from model_functions import dict_to_array
+    import matplotlib as mpl
+    mpl.rcParams['axes.formatter.useoffset'] = False
+    mpl.rcParams['axes.formatter.limits'] = (-9, 9)   # disables scientific notation
     neid_flux = dict_to_array(neid_data["Flux"])
 
-    fig, axs = plt.subplots(6, 3, figsize=(16, 16))
+    fig, axs = plt.subplots(3, 3, figsize=(25, 16))
 
     index = 0
     for cent, edges in lines_list.items():
@@ -499,30 +752,67 @@ def plot_lines(neid_data, korg_data, filename, mask_filename='data/sol_line_wind
 
         wl_mask = (wl_array > edges[0]) & (wl_array < edges[-1])
 
-        wl_masked = wl_array[wl_mask]
+        wl_masked = wl_array[wl_mask] - cent
+        vel_ar = 299792.458 * wl_masked / cent
         raise_masked = korg_raise[wl_mask]
         fall_masked = korg_fall[wl_mask]
         total_masked = korg_total[wl_mask]
 
         neid_masked = neid_flux[wl_mask]
-        
-        axs[index//3, index%3].plot(wl_masked, raise_masked, color='blue')
-        axs[index//3, index%3].plot(wl_masked, fall_masked, color='red')
-        axs[index//3, index%3].plot(wl_masked, total_masked, color='green')
-        axs[index//3, index%3].plot(wl_masked, neid_masked, color='black')
+        axs[index//3, index%3].annotate(
+            fr"$\lambda_0 = {cent:.4f}\,\mathrm{{\AA}}$",
+            xy=(0.3, 0.96),              # position inside the axes
+            xycoords="axes fraction",
+            fontsize=16,
+            ha="left", va="top",
+            fontweight='bold'
+        )
+        axs[index//3, index%3].plot(vel_ar, raise_masked, color='blue', label='Raising')
+        axs[index//3, index%3].plot(vel_ar, fall_masked, color='red', label='Falling')
+        axs[index//3, index%3].plot(vel_ar, total_masked, color='green', label='Resultant')
+        axs[index//3, index%3].plot(vel_ar, neid_masked, color='black', label="NEID")
+        axs[index//3, index%3].tick_params(axis='both', labelsize=22)
+        # ax = axs[index//3, index%3]
+        axs[index//3, index%3].ticklabel_format(style='plain')
+
         index += 1
-    plt.tight_layout()
-    plt.savefig(filename)
+    handles, labels = axs.ravel()[0].get_legend_handles_labels()
+    fig.legend(handles,
+               labels,
+               loc='upper center',
+               ncol=4,
+               bbox_to_anchor=(0.5, 1.0),
+               fontsize=22)
+    # fig.subplots_adjust(top=)
+    fig.text(0.5, 0.0, r'$\Delta v$ (km/s)', ha='center', fontsize=22, fontweight='bold')
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.savefig(filename, bbox_inches='tight')
 
         
-def plot_profile(params, params_errs, ax, **kwargs):
+def plot_profile(params, params_errs, ax, inset=None, **kwargs):
     temp_array = np.load("data/Temp_layers.npy")
     # x = np.linspace(0, 1, np.shape(temp_array)[0])
+    temp_mask = temp_array < 8000
+    vel_array = np.ones(np.size(temp_array))
+    temp_array = temp_array[temp_mask]
     x = (temp_array - np.min(temp_array)) / (np.max(temp_array) - np.min(temp_array))
     vel_profile = generate_profile(params, x)
+    vel_array[temp_mask] = vel_profile
+    vel_array[~temp_mask] = vel_profile[-1]
+    vel_profile = vel_array
     # vel_var = generate_profile_err(params_errs, x)
     # vel_err = np.sqrt(vel_var)
+    
+    temp_array = np.load("data/Temp_layers.npy")
+        
+    # if inset is None:
     ax.plot(temp_array, vel_profile, **kwargs)
+    #else:
+        # print("Plotting inset")
+        # x_mask = (temp_array >= inset[0]) & (temp_array <= inset[1]) # & (vel_profile >= inset[2]) & (vel_profile <= inset[3])
+        # ax.plot(temp_array[x_mask], vel_profile[x_mask], **kwargs)
+
+        
     # ax.fill_between(temp_array, vel_profile-vel_err, vel_profile+vel_err, **kwargs, alpha=0.3)
 
     

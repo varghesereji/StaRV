@@ -24,6 +24,7 @@ from utils import plot_profile
 
 def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="Separate"):
     raise_params = params[:-1]
+    # raise_params = np.insert(raise_params, 0, 0.652481)
     raise_errs = errs[:-1]
     scale_fact = -1
     add_term = params[-1]
@@ -58,12 +59,15 @@ configfile = 'Spectral_fitting.config'
 config = configparser.ConfigParser()
 config.read(configfile)
 
+# master_resdir = '27_pmode_avg' # config['output_dir']['OP_MAIN']
+# master_subdir = 'Result_fix2nddegree_75thpercentile' # config['output_dir']['OP_SUB']
 master_resdir = config['output_dir']['OP_MAIN']
-master_subdir = config['output_dir']['OP_SUB']
+master_subdir = config['output_dir']['OP_SUB'] # + # "_-0.0002"
 
 resultsubdir_prefix = config['output_dir']['RESDIR_PREFIX']
 wlwinds = config['inputs']['WL_WINT'].strip().split(', ')
 maindir = config['data_dir']['NEID_DIR']
+# maindir = '/data/varghese/NEID_data/pmode_avg_data' # config['data_dir']['NEID_DIR']
 
 files_list = os.listdir(maindir)
 
@@ -71,7 +75,7 @@ script_path = os.path.abspath(__file__)
 srcdir = os.path.dirname(os.path.dirname(script_path))
 
 resmaindir = os.path.join(srcdir, master_resdir, master_subdir)
-plot_fname = os.path.join(resmaindir, "Vel_profile.pdf")
+plot_fname = os.path.join(resmaindir, "Vel_profile_injection.pdf")
 
 pdf = PdfPages(plot_fname)
 k = 1
@@ -81,7 +85,7 @@ full_params = []
 
 
 
-ref_vels = np.arange(-0.1, 0.1, 0.01)
+ref_vels = np.array([0., 0.0001]) # np.array([-0.01, -0.005, -0.001, 0, 0.001, 0.005, 0.01]) # np.arange(-0.1, 0.1, 0.01)
 
 params_dict_vels = defaultdict(list)
 for n, neid_filename in enumerate(files_list):
@@ -135,7 +139,7 @@ for n, neid_filename in enumerate(files_list):
                 ax.set_ylabel(labels[i])
                 if i == 3:
                     ax.set_xlabel("Injected velocity (km/s)")
-            # print(float(vels), float(param))
+            print(labels[i], float(vels), float(param))
             ax.plot(float(vels), float(param), '.', color='blue')
         errs = results['params_err']
         s +=1
@@ -160,7 +164,7 @@ pdf.close()
 
 print("Velocity profiles are saved at", plot_fname)
 fig = plt.figure(figsize=(12, 12))
-params_dict_kws = ["BJD", "CCFRV", "BIS", "FWHMMOD", "$R_2$", "$R_1$", "$R_0$", "C"]
+params_dict_kws = ["BJD", "CCFRVMOD", "BIS", "FWHMMOD", "Synt_CCFRVMOD", "Synt_BIS", "Synt_FWHMMOD", "$R_2$", "$R_1$", "$R_0$", "C"]
 n_figs = len(params_dict_kws)
 gs = fig.add_gridspec(n_figs, n_figs, hspace=0, wspace=0)
 axs = gs.subplots(sharex='col', sharey='row')
@@ -202,10 +206,10 @@ cax = fig.add_axes([0.90, 0.1, 0.02, 0.8])
 cbar = fig.colorbar(scalar_map, ax=axs, cax=cax, orientation='vertical', shrink=0.9, pad=0.2)
 cbar.set_label("Injected Velocity (km/s)", fontsize=16, labelpad=15)
 # plt.tight_layout()
-corr_plot_fname = os.path.join(resmaindir, "Correlations.pdf")
+corr_plot_fname = os.path.join(resmaindir, "Correlations_injection.pdf")
 plt.savefig(corr_plot_fname)
 
-'''
+
 fig, axs = plt.subplots(2, figsize=(16, 8), sharex=True, gridspec_kw={'right':0.92})
 rvmod_array = params_dict['CCFRV']
 norm = colors.Normalize(vmin=np.min(rvmod_array), vmax=np.max(rvmod_array))
@@ -230,8 +234,9 @@ cbar.set_label("CCFRVMOD (km/s)", fontsize=16, labelpad=15)
 # axs[0].set_title("Falling velocities")
 # plt.tight_layout()
 plt.subplots_adjust(hspace=0)
-plot_fname = os.path.join(resmaindir, "Vel_profile_together.pdf")
+plot_fname = os.path.join(resmaindir, "Vel_profile_together_injection.pdf")
 plt.savefig(plot_fname)
 
-    
-'''
+
+
+print("\a")

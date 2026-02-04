@@ -1,0 +1,247 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import os
+import pickle
+import sys
+from astropy.timeseries import LombScargle
+import configparser
+
+from scipy.stats import zscore
+
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib import cm, colors
+
+from astropy.io import fits
+
+from model_functions import generate_profile
+from utils import plot_profile
+
+
+
+def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="Separate"):
+    raise_params = params[:-1]
+    raise_params = np.insert(raise_params, 0, 0.652481)
+    raise_errs = errs[:-1]
+    scale_fact = -1
+    add_term = params[-1]
+    fall_params = raise_params * scale_fact
+    if annotate:
+        axs.annotate("vraise_coeffs($R_2$,$R_1$,$R_0$)\n="+str(raise_params), xy=(0.01, 0.05),
+                     xycoords='axes fraction', fontsize=12, bbox=dict(boxstyle="round, pad=0.3", fc="palegoldenrod", ec='blue', lw=2))
+        axs.annotate("constant="+str(add_term), xy=(0.01, 0.95),
+                     xycoords='axes fraction', fontsize=12, bbox=dict(boxstyle="round, pad=0.3", fc="palegoldenrod", ec='blue', lw=2))
+        axs.annotate("scale_fact="+str(scale_fact), xy=(0.95, 0.95),
+                     xycoords='axes fraction', fontsize=12, bbox=dict(boxstyle="round, pad=0.3", fc="palegoldenrod", ec='blue', lw=2))
+
+    raise_params[-1] += add_term
+    fall_params[-1] += add_term
+    if color is None:
+        color_raise = 'blue'
+        color_fall = 'red'
+    else:
+        color_raise = color
+        color_fall = color
+    if plotting=="Separate":
+        plot_profile(raise_params, None, axs, color=color_raise, label="$V_{raise}$")
+        plot_profile(fall_params, None, axs, color=color_fall, label="$V_{fall}$")
+        axs.axhline(y=add_term, color='k')
+    elif plotting=="Together":
+        plot_profile(raise_params, None, axs[1], color=color_raise)
+        plot_profile(fall_params, None, axs[0], color=color_fall)
+
+
+
+configfile = 'Spectral_fitting.config'
+config = configparser.ConfigParser()
+config.read(configfile)
+
+master_resdir = config['output_dir']['OP_MAIN']
+master_subdir = config['output_dir']['OP_SUB']
+
+resultsubdir_prefix = config['output_dir']['RESDIR_PREFIX']
+wlwinds = config['inputs']['WL_WINT'].strip().split(', ')
+maindir = config['data_dir']['NEID_DIR']
+
+files_list = os.listdir(maindir)
+
+script_path = os.path.abspath(__file__)
+srcdir = os.path.dirname(os.path.dirname(script_path))
+
+resmaindir = os.path.join(srcdir, master_resdir, master_subdir)
+plot_fname = os.path.join(resmaindir, "Vel_profile.pdf")
+
+pdf = PdfPages(plot_fname)
+k = 1
+
+header_kws = ['CCFJDMOD', 'CCFRVMOD', 'BISMOD', 'FWHMMOD']
+full_params = []
+
+
+
+ref_vels = np.arange(-0.1, 0.1, 0.01)
+
+# avg_results = 'Result_dir_Comb_spectra_3700-9000'
+# avg_resultdict = os.path.join(srcdir, master_resdir, master_subdir, resultsubdir_prefix + "Comb_spectra" + "_{}-{}".format(wlwinds[0], wlwinds[1]))
+# avg_result_filename = os.path.join(avg_resultdict, "fitted_params.pkl")
+# with open(avg_result_filename, 'rb') as avg_res:
+#     avg_results = pickle.load(avg_res)
+# print(avg_results)
+
+for n, neid_filename in enumerate(files_list):
+    fig, axs = plt.subplots(1, figsize=(16, 8), sharex=True)
+    data_name = os.path.join(maindir, neid_filename)
+    header = fits.getheader(data_name, ext=12)
+    header_params = np.array([header[i] for i in header_kws])
+    
+    basename = os.path.splitext(neid_filename)[0]
+    resultdict = os.path.join(srcdir, master_resdir, master_subdir, resultsubdir_prefix + basename + "_{}-{}".format(wlwinds[0], wlwinds[1]))
+
+    # print(resultdict)
+    print("{}/{}: {}".format(k, len(files_list), neid_filename))
+    result_filename = os.path.join(resultdict, "fitted_params.pkl")
+
+    # print(result_filename)
+    # if os.path.result_filename
+
+
+    if not os.path.exists(result_filename):
+        print("Result is not generated")
+        plt.close()
+        continue
+    k+=1
+    with open(result_filename, 'rb') as res:
+        results = pickle.load(res)
+
+    params = results['params']
+    epoch_params = np.concatenate((header_params, params))
+    full_params.append(epoch_params)
+    errs = results['params_err']
+    
+    plotting_velocity_profile(params, axs)
+    
+    fig.suptitle(neid_filename, fontsize=16)
+    axs.set_ylabel("Falling profile")
+    axs.legend(loc="upper center",
+               bbox_to_anchor=(0.75, 0.5),
+               ncol=1)
+    axs.set_ylabel("Raising profile")
+    axs.set_xlabel("Temperature (K)")
+    plt.subplots_adjust(hspace=0)
+    plt.tight_layout()
+    pdf.savefig()
+    plt.close()
+
+pdf.close()
+
+print("Velocity profiles are saved at", plot_fname)
+# avg_results_fullarray = np.concatenate((np.array([np.nan, np.nan, np.nan, np.nan]),
+#                                         avg_results['params']))
+full_params = np.array(full_params)
+params_dict_kws = ["BJD", "CCFRVMOD", "BIS", "FWHMMOD", "$R_1$", "$R_0$", "C"]
+params_dict = {i:full_params.T[n] for n, i in enumerate(params_dict_kws)}
+n_figs = len(params_dict_kws)
+# fig, axs = plt.subplots(n_figs, n_fits, figsize=(16,16)
+fig = plt.figure(figsize=(12, 12))
+gs = fig.add_gridspec(n_figs, n_figs, hspace=0, wspace=0)
+# axs = gs.subplots(sharex='col', sharey='row')
+
+# Create axes one by one (no sharing at first)
+axs = np.empty((n_figs, n_figs), dtype=object)
+for i in range(n_figs):
+    for j in range(n_figs):
+        axs[i, j] = fig.add_subplot(gs[i, j])
+        
+for i_x, kw_x in enumerate(params_dict_kws):
+    print("\n")
+    for i_y, kw_y in enumerate(params_dict_kws):
+        x_data = params_dict[kw_x]
+        y_data = params_dict[kw_y]
+
+        ax = axs[i_y, i_x]
+        if i_x == i_y:
+            ax.hist(x_data, bins=100)
+        elif (i_x < i_y):
+            print("{} {} vs {} {}|".format(i_x, kw_x, i_y, kw_y), end="")
+            z_x = np.abs(zscore(x_data))
+            z_y = np.abs(zscore(y_data))
+            mask = (z_x <3) & (z_y < 3)
+            ax.plot(x_data, y_data, '.')
+            # ax.set(xlabel=kw_x, ylabel=kw_y)
+        
+        else:
+            ax.set_visible(False)
+
+        if i_x != 0:
+            ax.set_ylabel("")
+        else:
+            ax.set_ylabel(kw_y)
+
+        if i_y != n_figs - 1:
+            ax.set_xlabel("")
+        else:
+            ax.set_xlabel(kw_x)
+
+        if i_x != 0:
+            ax.tick_params(labelleft=False)
+        if i_y != n_figs - 1:
+            ax.tick_params(labelbottom=False)
+        # if i_x==0:
+        #     ax.set_ylabel(kw_y)
+        # if i_y==n_figs-1:
+        #     ax.set_xlabel(kw_x)
+        # ax.axhline(y=avg_results_fullarray[i_y], color='k')
+        # print("hor line", avg_results_fullarray[i_y])
+        # ax.axvline(x=avg_results_fullarray[i_x], color='k')
+        # print("ver line", avg_results_fullarray[i_x])
+plt.tight_layout()
+corr_plot_fname = os.path.join(resmaindir, "Correlations.pdf")
+plt.savefig(corr_plot_fname)
+
+fig = plt.figure(figsize=(12, 12))
+gs = fig.add)grudspec(n_figs-1, hspace=0)
+time = params_dict["BJD"]
+window = np.ones_like(time)
+for n, dictkwys in enumerate(params_dict_kws[1:]):
+    data = params_dict[dictkwys]
+    frequency, power = LombScargle(time, data).autopower()
+    frequency_wind, power_wind = LombScargle(time, window).autopower()
+    power_wind = power_wind / np.nanmax(power_wind)
+    axs[n].plot(frequency_wind, power_wind, label="Window")
+    axs[n].plot(frequency, power, label=dictkwys)
+    axs[n].set_ylabel(dictkwys)
+    axs[n].legend()
+plt.subplots_adjust(hspace=0, wspace=0)
+periodogram_name = os.path.join(resmaindir, "Periodograms.pdf")
+plt.tight_layout()
+plt.savefig(periodogram_name)
+
+fig, axs = plt.subplots(2, figsize=(16, 8), sharex=True, gridspec_kw={'right':0.92})
+rvmod_array = params_dict['CCFRVMOD']
+norm = colors.Normalize(vmin=np.min(rvmod_array), vmax=np.max(rvmod_array))
+cmap = LinearSegmentedColormap.from_list("BlueRed", ["blue", "red"])
+scalar_map = cm.ScalarMappable(norm=norm, cmap=cmap)
+
+fitted_params = full_params[:, 4:]
+
+
+for n, params in enumerate(fitted_params):
+    color=scalar_map.to_rgba(rvmod_array[n])
+    plotting_velocity_profile(params, axs, annotate=False, color=color, plotting="Together")
+
+axs[1].set_xlabel("Temperature (K)", fontsize=18)
+axs[1].set_ylabel("Raising Velocity (km/s)", fontsize=18)
+axs[0].set_ylabel("Falling Velocity (km/s)", fontsize=18)
+# axs[1].tick_params(axis="both", labelsize=18)
+cax = fig.add_axes([0.90, 0.1, 0.02, 0.8])
+cbar = fig.colorbar(scalar_map, ax=axs, cax=cax, orientation='vertical', shrink=0.9, pad=0.2)
+cbar.set_label("CCFRVMOD (km/s)", fontsize=16, labelpad=15)
+# fig.suptitle("Difference from mean profile")
+# axs[0].set_title("Falling velocities")
+# plt.tight_layout()
+plt.subplots_adjust(hspace=0)
+plot_fname = os.path.join(resmaindir, "Vel_profile_together.pdf")
+plt.savefig(plot_fname)
+
+    

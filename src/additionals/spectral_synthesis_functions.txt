@@ -1,0 +1,89 @@
+import numpy as np
+
+from PyAstronomy import pyasl
+
+import juliapkg
+from juliacall import Main as jl
+jl.seval("using Korg"); Korg=jl.Korg
+
+
+def generate_with_korg(velocity, wl_wind=None, queue=None, temp=5770, logg=4.438, R=110000, window_size=4, continuum=False, fakedata=False):
+    '''
+    generating stellar spectra with given temperature and logg
+    velocity: array of velocity associated with each layer
+    temp: effetive temperature
+    logg: log g of the star.
+    R: Resolution of the spectra that is required.
+    window_size: how far out to extend the convolution kernel in units of the LSF width (σ, not HWHM)
+    '''
+    if wl_wind is None:
+        wlmin = 4000
+        wlmax = 9000
+    else:
+        wlmin, wlmax = wl_wind
+    # print("velocity array", velocity)
+    # print("But trying without velocity array now")
+    lines = Korg.get_VALD_solar_linelist()
+    # print("Called linelist")
+    A_X = Korg.format_A_X(0)
+
+    file_path = 'model_atmosphere_{}.mod'.format(temp)
+    atm = Korg.interpolate_marcs(temp, logg, A_X)
+    sol = Korg.synthesize(atm, lines, A_X, wlmin, wlmax,
+                          mu_values=100,
+                          vmic=0.78,
+                          verbose=False,
+                          I_scheme="linear",
+                          velocity_profile=velocity)#+0.08)#, velocity_profile=velocity)a
+    flux = sol.flux
+    cont = sol.cntm
+    wavelengths = sol.wavelengths
+    if not continuum:
+        conv_LSF = Korg.apply_LSF(flux, wavelengths, R, window_size=window_size)
+        conv_flux = np.array(conv_LSF)
+        cont = np.array(cont)
+        wavelengths = np.array(wavelengths)
+        rbflux = pyasl.rotBroad(wavelengths, conv_flux, epsilon=0.6, vsini=1.84)
+        if fakedata:
+            korg_data = {'Flux':rbflux, 'Wl':wavelengths, 'cont':cont}
+        else:
+            korg_data = {'Flux':rbflux/cont, 'Wl':wavelengths}
+        # print("Korg_data", korg_data)
+        del sol
+        del conv_LSF
+        del conv_flux
+        del wavelengths
+        del flux
+        del cont
+        del rbflux
+        return korg_data
+    else:
+        del sol
+        del flux
+        return {'cont':cont, 'Wl':wavelengths}
+
+
+def generate_full_korgspectra(velocity, wlwindow=(3700, 9000)):
+    '''
+    This function is to generate the spectra with Korg for large windows.
+    '''
+    window = 100
+    wl_regions = np.arange(wlwindow[0], wlwindow[1], window)
+    full_flux = np.array([])
+    full_wl = np.array([])
+    for n, wl in enumerate(wl_regions[:-1]):
+        print(wl, wl_regions[n+1])
+        spectra = generate_with_korg(velocity=velocity, wl_wind=(wl-2, wl_regions[n+1]+2))
+        flux = spectra['Flux'][10:-10]
+        wl = spectra['Wl'][10:-10]
+        full_flux = np.concatenate((full_flux, flux))
+        full_wl = np.concatenate((full_wl, wl))
+    # Making the wavelength array into strictly increasing function
+    wl_dict = defaultdict(list)
+    for wl_i, flux_i in zip(full_wl, full_flux):
+        wl_dict[wl_i].append(flux_i)
+    wl_unique = np.array(sorted(wl_dict.keys()))
+    flux_avg = np.array([np.mean(wl_dict[wl_i]) for wl_i in wl_unique])
+    korg_spectra = {'Flux':flux_avg,
+                    'Wl': wl_unique}
+    return korg_spectra

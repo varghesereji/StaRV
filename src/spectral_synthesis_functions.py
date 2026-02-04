@@ -7,6 +7,14 @@ from juliacall import Main as jl
 jl.seval("using Korg"); Korg=jl.Korg
 import time
 
+LINES = Korg.get_VALD_solar_linelist()
+
+M_H = 0.0
+ALPHA_M = 0.0
+C_M = 0.0
+AX_SOLAR = Korg.format_A_X(M_H)
+_ATM_CACHE = {}
+
 # def generate_with_korg(velocity, wl_wind=None, temp=5770, logg=4.438, R=110000, window_size=4, continuum=False, fakedata=False):
 def generate_with_korg(velocity, wl_wind=None, stellar_params=None, spectral_params=None, continuum=False, cont_divide=False):    
     '''
@@ -57,8 +65,13 @@ def generate_with_korg(velocity, wl_wind=None, stellar_params=None, spectral_par
     # print("Called linelist")
     A_X = Korg.format_A_X(0)
     
-
-    atm = Korg.interpolate_marcs(temp, logg, A_X)
+    lines = LINES
+    A_X = AX_SOLAR
+    key = (temp, logg)
+    if key not in _ATM_CACHE:
+        atm_gen = Korg.interpolate_marcs(temp, logg, M_H, ALPHA_M, C_M)
+        _ATM_CACHE[key] = atm_gen
+    atm = _ATM_CACHE[key]
     sol = Korg.synthesize(atm, lines, A_X, wlmin, wlmax,
                           mu_values=100,
                           vmic=0.78,

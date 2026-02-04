@@ -1,0 +1,59 @@
+
+import os
+import re
+import threading
+import subprocess
+import configparser
+import numpy as np
+
+
+configfile = 'Spectral_fitting.config'
+config = configparser.ConfigParser()
+config.read(configfile)
+# data_dir = "../NEID_data_set3"
+# data_dir = "../NEID_data_onecycle"
+data_dir = config['data_dir']['NEID_DIR']
+
+data_list = os.listdir(data_dir)
+
+# print(data_list)
+execute_list = []
+ref_vels = np.arange(-0.1, 0.1, 0.01)
+for data in data_list:
+    # for vels in ref_vels:
+    vels = 0 # -0.0002
+    command = "taskset -c 20-79 python Velocity_fitting_function.py --fname {} --dead_vel {} --fitting ccf".format(data, round(vels, 4))
+    execute_list.append(command)
+
+
+def run_sequentially(cmd_list, label):
+    for cmd in cmd_list:
+        print(f"[{label}] Running: {cmd}")
+        subprocess.run(cmd, shell=True)
+        print(f"[{label}] Finished: {cmd}")
+
+n_threads = 55
+n_batches = 1 + len(execute_list) // n_threads
+batches = [execute_list[i:i + n_batches] for i in range(0, len(execute_list), n_batches)]
+print("Batches", len(batches))
+# print(batches)
+
+count = sum(len(sublist) for sublist in batches)
+print(count)
+
+
+threads = []
+for i, batch in enumerate(batches):
+    thread = threading.Thread(target=run_sequentially, args=(batch, f"Seq {i+1}"))
+    threads.append(thread)
+
+# Start all threads in parallel
+for thread in threads:
+    thread.start()
+
+# Wait for all threads to complete
+for thread in threads:
+    thread.join()
+
+print("All commands finished.")
+

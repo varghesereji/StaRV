@@ -16,6 +16,8 @@ from utils import calling_linelist
 from utils import call_neiddata_full
 from utils import generate_fakedata
 from utils import save_dict_to_pickle
+from utils import save_synt_data
+from utils import inject_vel_neidata
 
 from functools import partial
 
@@ -28,6 +30,8 @@ from model_functions import generate_profile
 from model_functions import calculate_parameter_errors
 from model_functions import generate_full_korgspectra
 from model_functions import residue_profile
+from model_functions import residue_ccf
+from model_functions import reconstruct_params
 
 from juliacall import Main as jl
 jl.seval("using Korg")
@@ -37,6 +41,8 @@ Korg = jl.Korg
 def velprofile_fit_function(neid_filename, configfile,
                             save_generated_syntspectra=False, dead_velocity=0,
                             snr=500, purpose='both', logfilesave='T',
+                            ip_data='epoch',
+                            fitting='spectra',
                             save_ip=False):
     config = configparser.ConfigParser()
     config.read(configfile)
@@ -135,6 +141,12 @@ def velprofile_fit_function(neid_filename, configfile,
             fullpath = os.path.join(maindir, onefile)
             # print("Dead velocity {}".format(dead_velocity))
             # print(fullpath)
+            shutil.copy(fullpath, resultdict)
+            print(fullpath, "copied to", resultdict)
+            fullpath = os.path.join(resultdict, neid_filename)
+            inject_vel_neidata(fullpath, dead_velocity)
+            dead_velocity = 0
+            print("Using the file", fullpath)
             neid_data_dict = call_neiddata_full(fullpath, resultdict,
                                                 refspec=korg_data_ref,
                                                 save_interactive_plots=save_ip,
@@ -151,55 +163,98 @@ def velprofile_fit_function(neid_filename, configfile,
     # plot_fname = config['outputs']['SPEC_PRIFIX']
 
     # Initial conditions and bounds
-    init_params3 = [-0.001, -0.001, -0.1, 0.0]
-    lower_bounds = [-np.inf, -np.inf, -5, -10]
-    upper_bounds = [np.inf, np.inf, 0, 10]
+    init_params3 = [0.649, -1.287, -1.16, 0.03]
+    lower_bounds = [-np.inf, -np.inf, -5, -1]
+    upper_bounds = [np.inf, np.inf, 0, 1]
 
     param_pos = np.array(['r', 'r', 'r', 'v'])
+    # param_pos = np.array(['p', 'p', 'p', 'v'])
+    pca = False
     residue_vel = partial(residue_profile, neid_data=neid_data_dict,
                           synt_spectra=None,
                           area_fact=0.5,
                           scale_fact=-1,
-                          param_pos=param_pos)
+                          pca_comp=pca,
+                          param_pos=param_pos,
+                          ip_data=ip_data)
     if (purpose == 'minimize') or (purpose == 'both'):
         if not os.path.isfile(result_filename):
             print("Start fitting")
-            result = least_squares(residue_vel, init_params3,
-                                   bounds=(lower_bounds, upper_bounds),
-                                   x_scale='jac',
-                                   jac='3-point',
-                                   verbose=2,
-                                   ftol=None,
-                                   method='trf',
-                                   loss='soft_l1',
-                                   max_nfev=1000)
+            if fitting == 'spectra':
+                result = least_squares(residue_vel, init_params3,
+                                       bounds=(lower_bounds, upper_bounds),
+                                       x_scale='jac',
+                                       jac='3-point',
+                                       verbose=2,
+                                       ftol=None,
+                                       method='trf',
+                                       loss='soft_l1',
+                                       max_nfev=1000)
+            elif fitting == "ccf":
+                residue_ccf_fn = partial(residue_ccf,
+                                         neid_fname=fullpath,
+                                         opdir=resultdict)
+                                         
+                result = least_squares(residue_ccf_fn,
+                                       init_params3,
+                                       bounds=(lower_bounds, upper_bounds),
+                                       x_scale='jac',
+                                       jac='3-point',
+                                       verbose=2,
+                                       ftol=None,
+                                       method='trf',
+                                       loss='soft_l1',
+                                       max_nfev=1000)
+                
             print(result)
 
-            fitted_params3 = result.x
-
+            pca_array_result = result.x
+            
             print("Fitted_params for third order", result.x)
-
+            
+            additional_constant = pca_array_result[-1]
+            if pca:
+                pca_comps = pca_array_result[:-1]
+                profile_params = reconstruct_params(pca_comps)
+                profile_params[-1] += additional_constant
+            else:
+                profile_params = pca_array_result
+            
+            fitted_params3 = profile_params
             errorvals, cov_matrix = calculate_parameter_errors(result)
-            resultdictionary = {'params': fitted_params3,
+            resultdictionary = {'profile_params': fitted_params3,
+                                'pca_comps': pca_array_result,
                                 'params_err': errorvals,
                                 'cov_matr': cov_matrix}
-
             save_dict_to_pickle(resultdictionary, result_filename)
             save_dict_to_pickle(result, os.path.join(resultdict,
                                                      "least_squares_op.pkl"))
-
+            
         else:
             print("The result already exist. Calling it to plot")
             with open(result_filename, 'rb') as opfile:
-                fitted_params3 = pickle.load(opfile)['params']
+                fitted_params3 = pickle.load(opfile)['profile_params']
+        print("profile params", fitted_params3)
+        save_synt_data(fitted_params3, fullpath, resultdict, save_interactive_plots=save_ip)
+        print('resultdict', resultdict)
+        print(os.path.dirname(fullpath))
+        if resultdict == os.path.dirname(fullpath):
+            print("Removing", fullpath)
+            if os.path.exists(fullpath):
+                os.remove(fullpath)
+            synt_spectra_fname = "Synt_"+neid_filename
+            if os.path.exists(os.path.join(resultdict, synt_spectra_fname)):
+                os.remove(os.path.join(resultdict, synt_spectra_fname))
+        sys.exit(1)
         korg_spectra = residue_vel(fitted_params3, required='spectra')
 
         from utils import plotting_spectra, plot_lines
         plotting_spectra(neid_data_dict,
-                         korg_spectra, resultdict+"/Fitted_spectra.pdf")
+                         korg_spectra, resultdict+"/Fitted_spectra.pdf",
+                         interactive=save_ip)
         plot_lines(neid_data_dict,
                    korg_spectra, resultdict+"/Fitted_spectra_lines.pdf",
-                   mask_filename='data/Deep_lines.csv')
+                   mask_filename='data/Sample_lines.csv') # Deep_lines.csv')
 
         if purpose == 'both':
             vel_array = np.linspace(fitted_params3-2*errorvals,
@@ -216,7 +271,7 @@ def velprofile_fit_function(neid_filename, configfile,
             plt.xlabel("Velocities (km/s)")
             plt.ylabel("Reduced chi2")
             plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
-
+        
         if save_generated_syntspectra:
             x = np.linspace(0, 1, 56)
             vel_raise = generate_profile(fitted_params3, x)
@@ -249,7 +304,7 @@ def velprofile_fit_function(neid_filename, configfile,
 
 
 parser = argparse.ArgumentParser(description="Run velprofile fitting.")
-ref_fname = "neidL2_20220203T165049.fits"
+ref_fname = "neidL2_20220402T173047.fits"
 # Required positional argument
 parser.add_argument('--fname', type=str,
                     default=ref_fname, help='Input file name')
@@ -274,7 +329,11 @@ parser.add_argument('--dead_vel', type=float,
 
 parser.add_argument('--purpose', type=str,
                     default='minimize', help='Purpose. (minimize, chi2, both)')
-
+parser.add_argument('--fitting', type=str,
+                    default='spectra',
+                    help="Fitting for: (spectra, ccf)")
+parser.add_argument('--ip_data', type=str,
+                    default='epoch', help='epoch, combined')
 parser.add_argument('--save_ip', type=str,
                     default='F', help='Save interactive plot (T, F)')
 # Parse args
@@ -320,6 +379,7 @@ velprofile_fit_function(
     snr=snr_value,  # Only needed for Korg, but passing anyway
     logfilesave=args.LOG,
     purpose=args.purpose,
+    fitting=args.fitting,
     save_ip=save_ip
 )
 
