@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 from PyAstronomy import pyasl
 
@@ -6,6 +7,20 @@ import juliapkg
 from juliacall import Main as jl
 jl.seval("using Korg"); Korg=jl.Korg
 import time
+
+jl.seval("""
+function synth_fast(atm, lines, A_X, wlmin, wlmax, velocity)
+    sol = Korg.synthesize(
+        atm, lines, A_X, wlmin, wlmax;
+        mu_values=100,
+        vmic=0.78,
+        verbose=false,
+        I_scheme="linear_flux_only",
+        velocity_profile=velocity
+    )
+    return sol.flux, sol.wavelengths, sol.cntm
+end
+""")
 
 LINES = Korg.get_VALD_solar_linelist()
 
@@ -72,12 +87,21 @@ def generate_with_korg(velocity, wl_wind=None, stellar_params=None, spectral_par
         atm_gen = Korg.interpolate_marcs(temp, logg, M_H, ALPHA_M, C_M)
         _ATM_CACHE[key] = atm_gen
     atm = _ATM_CACHE[key]
+    t1 = time.time()
+    velocity = np.ascontiguousarray(velocity, dtype=np.float64)
     sol = Korg.synthesize(atm, lines, A_X, wlmin, wlmax,
                           mu_values=100,
                           vmic=0.78,
                           verbose=False,
                           I_scheme="linear_flux_only",
                           velocity_profile=velocity)
+    t2 = time.time()
+    print("Time taken for synthesise:", t2-t1)
+    
+    # flux, wl, cont = jl.synth_fast(
+    #     atm, LINES, AX_SOLAR, wlmin, wlmax, velocity
+    # )
+    # print("Time taken in new method:", time.time()-t2)
     flux = sol.flux
     cont = sol.cntm
     wavelengths = sol.wavelengths

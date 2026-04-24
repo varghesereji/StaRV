@@ -22,14 +22,17 @@ from utils import plot_profile
 
 
 
-def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="Separate", inset=None):
+def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="Separate", inset=None,
+                              profile='poly'):
     raise_params = params[:-1]
 
     # raise_params = np.insert(raise_params, 0, 0.66181421)
     raise_errs = errs[:-1]
     scale_fact = -1
     add_term = params[-1]
-    fall_params = raise_params * scale_fact
+    # fall_params = raise_params * scale_fact
+    fall_params = -1 * raise_params.copy()
+    fall_params[1] = -1 * fall_params[1]
     # print(raise_params, fall_params)
     if annotate:
         axs.annotate("vraise_coeffs($R_2$,$R_1$,$R_0$)\n="+str(raise_params), xy=(0.01, 0.05),
@@ -49,8 +52,8 @@ def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="
         color_fall = color
 
     if plotting=="Separate":
-        plot_profile(raise_params, None, axs, color=color_raise, label="$V_{raise}$", inset=inset)
-        plot_profile(fall_params, None, axs, color=color_fall, label="$V_{fall}$", inset=inset)
+        plot_profile(raise_params, None, axs, profile=profile, color=color_raise, label="$V_{raise}$", inset=inset)
+        plot_profile(fall_params, None, axs, profile=profile, color=color_fall, label="$V_{fall}$", inset=inset)
         axs.axhline(y=add_term, color=color_raise)
         axs.tick_params(axis='both', labelsize=22)
         if inset is not None:
@@ -61,9 +64,9 @@ def plotting_velocity_profile(params, axs, annotate=True, color=None, plotting="
         print("making raise", raise_params)
         axs[0].tick_params(axis='both', labelsize=22)
         axs[1].tick_params(axis='both', labelsize=22)
-        plot_profile(raise_params, None, axs[1], color=color_raise, alpha=0.3, inset=inset)
+        plot_profile(raise_params, None, axs[1], profile=profile, color=color_raise, alpha=0.3, inset=inset)
         print("making fall", fall_params)
-        plot_profile(fall_params, None, axs[0], color=color_fall, alpha=0.3, inset=inset)
+        plot_profile(fall_params, None, axs[0], profile=profile, color=color_fall, alpha=0.3, inset=inset)
 
 
 def making_profile_allvels(resultdict, axs, color=None, inset=None):
@@ -72,7 +75,7 @@ def making_profile_allvels(resultdict, axs, color=None, inset=None):
     result_filename = os.path.join(resultdict, "fitted_params.pkl")
     with open(result_filename, 'rb') as res:
         results = pickle.load(res)
-    params = results['params']
+    params = results['profile_params']
     plotting_velocity_profile(params, axs, annotate=False, color=color, inset=inset)
     
     
@@ -84,8 +87,13 @@ configfile = 'Spectral_fitting.config'
 config = configparser.ConfigParser()
 config.read(configfile)
 
-master_resdir = '31_higherorder_pmodeavg' # config['output_dir']['OP_MAIN']
-master_subdir = config['output_dir']['OP_SUB'] # + '_-0.0002' # + # "_-0.0002"
+# master_resdir = '31_higherorder_pmodeavg' # config['output_dir']['OP_MAIN'
+# master_resdir = "33_pca_components" # "36_zeroinit" # config['output_dir']['OP_MAIN']
+# master_resdir = "33_pca_components" # "36_zeroinit" # config['output_dir']['OP_MAIN']
+master_subdir = "Result_2ndorder_47layers_nonpca"
+master_resdir = config['output_dir']['OP_MAIN']
+master_subdir =  config['output_dir']['OP_SUB'] # + '_-0.0002' # + # "_-0.0002"
+# master_subdir = 'Result_2ndorder_dC_trf_softl1_oldtrials'
 if (len(args) == 1) & (args[0] != 'all'):
     print("adding suffix")
     print(args)
@@ -145,14 +153,15 @@ for n, neid_filename in enumerate(files_list):
     basename = os.path.splitext(neid_filename)[0]
 
     resultdict = os.path.join(srcdir, master_resdir, master_subdir, resultsubdir_prefix + basename + "_{}-{}".format(wlwinds[0], wlwinds[1]))
-    print("Resultdict", resultdict)
+    
     data_name = os.path.join(resultdict, "Data_CCF.fits")
     result_filename = os.path.join(resultdict, "fitted_params.pkl")
     syntccf_filename = os.path.join(resultdict, "Synt_CCF.fits")
     if not os.path.exists(result_filename) or not os.path.exists(syntccf_filename):
-        print("Result is not generated")
+        # print("Result is not generated")
         plt.close()
         continue
+    print("Resultdict", resultdict)
     data_ccf = fits.getdata(data_name)[-1]
     synt_ccf = fits.getdata(syntccf_filename)[-1]
     # print(np.shape(data_ccf))
@@ -183,13 +192,17 @@ for n, neid_filename in enumerate(files_list):
     with open(result_filename, 'rb') as res:
         results = pickle.load(res)
 
-    params = results['params']
+    params = results['profile_params'] # Have to change this later
+    pca_comps = results['pca_comps']
+    from model_functions import reconstruct_params
+    # params = reconstruct_params(pca_comps)
+    header_params = np.concatenate((header_params, pca_comps))
     # print("params", params)
     epoch_params = np.concatenate((header_params, params))
     # print("epoch", epoch_params)
     full_params.append(epoch_params)
     errs = results['params_err']
-    print(params)
+    print(params, pca_comps)
     if args[0] == 'all':
         axins = axs.inset_axes([0.25, 0.55, 0.4, 0.2])
         axins_2 = axs.inset_axes([0.25, 0.2, 0.4, 0.2])
@@ -216,11 +229,11 @@ for n, neid_filename in enumerate(files_list):
         cbar.set_label("Injected velocities (cm/s)")
 
     else:
-        plotting_velocity_profile(params, axs)
+        plotting_velocity_profile(params, axs, profile='parabola')
         axs.legend(loc="upper center",
                    bbox_to_anchor=(0.75, 0.5),
                    ncol=1)
-
+    print("title", neid_filename)
     fig.suptitle(neid_filename, fontsize=16)
     # axs.plot(rv_array, data_ccf, label="Data CCF")
     # axs.plot(rv_array, synt_ccf, label="Synt CCF")
@@ -256,18 +269,45 @@ print("Velocity profiles are saved at", plot_fname)
 # avg_results_fullarray = np.concatenate((np.array([np.nan, np.nan, np.nan, np.nan]),
 #                                         avg_results['params']))
 full_params = np.array(full_params)
+# params_dict_kws = ["BJD", "CCFRVMOD", "BIS", "FWHMMOD", "Synt_CCFRVMOD", "Synt_BIS", "Synt_FWHMMOD", "P2", "P1", "P0", "dC", "$R_2$", "$R_1$", "$R_0$", "C"]
 params_dict_kws = ["BJD", "CCFRVMOD", "BIS", "FWHMMOD", "Synt_CCFRVMOD", "Synt_BIS", "Synt_FWHMMOD", "$R_2$", "$R_1$", "$R_0$", "C"]
+# params_dict_kws = ["BJD", "CCFRVMOD", "BIS", "FWHMMOD", "Synt_CCFRVMOD", "Synt_BIS", "Synt_FWHMMOD", "P2", "P1", "P0", "$R_2$", "$R_1$", "$R_0$", "C"]
+
 params_dict = {i:full_params.T[n] for n, i in enumerate(params_dict_kws)}
-pkl_filename = os.path.join(resmaindir, "Fitted_params_full.pkl")
+pkl_filename = os.path.join(resmaindir, "Fitted_params_full_{}.pkl".format(args[0]))
 with open(pkl_filename, "wb") as resultdict_full:
     pickle.dump(params_dict, resultdict_full)
     
 # print(params_dict)
+# params_dict_kws = ["P2", "P1", "P0", "dC", "$R_2$", "$R_1$", "$R_0$", "C"]
+# params_dict_kws = ["P2", "P1", "P0", "$R_2$", "$R_1$", "$R_0$", "C"]
 n_figs = len(params_dict_kws)
 # fig, axs = plt.subplots(n_figs, n_fits, figsize=(16,16)
 fig = plt.figure(figsize=(12, 12))
 gs = fig.add_gridspec(n_figs, n_figs, hspace=0, wspace=0)
 # axs = gs.subplots(sharex='col', sharey='row')
+
+# limits = {
+#     "P2": [-7.09, 7.20],
+#     "P1": [-11.07, 9.52],
+#     "P0": [-4.10, 0.00],
+#     "dC": [-0.005, 0.013],
+#     "$R_2$": [0.64934, 0.64939],
+#     "$R_1$": [-1.2870, -1.2869],
+#     "$R_0$": [-1.151, -1.139],
+#     "C":  [0.0292, 0.0381],
+# }
+
+limits = {
+    "P2": [-3.7822828555753643, 7.194644995301386],
+    "P1": [-4.554166551214614, 9.517706010152757],
+    "P0": [-4.026147110800897, -0.00021474139108138845],
+    "dC": [-0.0013654314740110683, 0.002437255726036366],
+    "$R_2$": [0.6493525158625446, 0.6493774685815212],
+    "$R_1$": [-1.2869519106189422, -1.2869251522483107],
+    "$R_0$": [-1.1507850994261823, -1.1395585990960204],
+    "C":  [0.029229135927036583, 0.0380274364613304],
+}
 
 # Create axes one by one (no sharing at first)
 axs = np.empty((n_figs, n_figs), dtype=object)
@@ -283,19 +323,34 @@ for i_x, kw_x in enumerate(params_dict_kws):
 
         ax = axs[i_y, i_x]
         if i_x == i_y:
-            zsc = np.abs(zscore(x_data))
-            mask = zsc < 3
-            ax.hist(x_data[mask], bins=100)
+            # zsc = np.abs(zscore(x_data))
+            # mask = zsc < 3
+            # ax.hist(x_data[mask], bins=100)
+            rotation = -45
+            ax.text(0.5, 0.5,
+                    kw_x,
+                    transform=ax.transAxes,
+                    fontsize=16,
+                    rotation=rotation,
+                    fontweight="bold",
+                    ha="center",
+                    va="center")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_frame_on(False)
         elif (i_x < i_y):
-            print("{} {} vs {} {}|".format(i_x, kw_x, i_y, kw_y), end="")
+            print("{} {} vs {} {}|".format(i_x, kw_x, i_y, kw_y))
+            # print("xmin", np.nanmin(x_data), "\t xmax", np.nanmax(x_data))
+            # print("ymin", np.nanmin(y_data), "\t ymax", np.nanmax(y_data))
             z_x = np.abs(zscore(x_data))
             z_y = np.abs(zscore(y_data))
             mask = (z_x <3) & (z_y < 3)
             # print(kw_x, kw_y, x_data, y_data)
-            ax.plot(x_data[mask], y_data[mask], '.')
+            ax.plot(x_data[mask], y_data[mask], '.', alpha=0.4)
+            # ax.set_xlim(limits[kw_x][0], limits[kw_x][1])
+            # ax.set_ylim(limits[kw_y][0], limits[kw_y][1])
             # ax.plot(x_data, y_data, '.')
             # ax.set(xlabel=kw_x, ylabel=kw_y)
-        
         else:
             ax.set_visible(False)
 
@@ -313,23 +368,16 @@ for i_x, kw_x in enumerate(params_dict_kws):
             ax.tick_params(labelleft=False)
         if i_y != n_figs - 1:
             ax.tick_params(labelbottom=False)
-        # if i_x==0:
-        #     ax.set_ylabel(kw_y)
-        # if i_y==n_figs-1:
-        #     ax.set_xlabel(kw_x)
-        # ax.axhline(y=avg_results_fullarray[i_y], color='k')
-        # print("hor line", avg_results_fullarray[i_y])
-        # ax.axvline(x=avg_results_fullarray[i_x], color='k')
-        # print("ver line", avg_results_fullarray[i_x])
 for ax in axs.ravel():
     ax.tick_params(axis='x', labelrotation=45, labelsize=14)
     ax.tick_params(axis='y', labelsize=14)
 fig.align_xlabels()
 fig.align_ylabels()
 plt.tight_layout()
-corr_plot_fname = os.path.join(resmaindir, "Correlations_withsyntccf.png")
+corr_plot_fname = os.path.join(resmaindir, master_subdir + "Correlations_withsyntccf_smalllim.png")
 plt.savefig(corr_plot_fname)
 
+# sys.exit()
 fig = plt.figure(figsize=(12, 12))
 gs = fig.add_gridspec(n_figs-1, hspace=0)
 
@@ -348,7 +396,7 @@ for n, dictkwys in enumerate(params_dict_kws[1:]):
     axs[n].legend()
 
 plt.subplots_adjust(hspace=0, wspace=0)
-periodogram_name = os.path.join(resmaindir, "Periodograms.pdf")
+periodogram_name = os.path.join(resmaindir, master_subdir + "Periodograms.pdf")
 plt.tight_layout()
 plt.savefig(periodogram_name)
 
@@ -358,12 +406,12 @@ norm = colors.Normalize(vmin=np.min(rvmod_array), vmax=np.max(rvmod_array))
 cmap = LinearSegmentedColormap.from_list("BlueRed", ["blue", "red"])
 scalar_map = cm.ScalarMappable(norm=norm, cmap=cmap)
 # print(full_params)
-fitted_params = full_params[:, 7:]
+fitted_params = full_params[:, 11:]
 # print(fitted_params)
 
 for n, params in enumerate(fitted_params):
     color=scalar_map.to_rgba(rvmod_array[n])
-    plotting_velocity_profile(params, axs, annotate=False, color=color, plotting="Together")
+    plotting_velocity_profile(params, axs, annotate=False, color=color, plotting="Together", profile='parabola')
 
 axs[1].set_xlabel("Temperature (K)", fontsize=22)
 axs[1].set_ylabel("Raising Velocity (km/s)", fontsize=22)
@@ -376,7 +424,7 @@ cbar.set_label("CCFRVMOD (km/s)", fontsize=16, labelpad=15)
 # axs[0].set_title("Falling velocities")
 plt.tight_layout()
 plt.subplots_adjust(hspace=0)
-plot_fname = os.path.join(resmaindir, "Vel_profile_together.pdf")
+plot_fname = os.path.join(resmaindir, master_subdir + "Vel_profile_together.pdf")
 plt.savefig(plot_fname)
 
     

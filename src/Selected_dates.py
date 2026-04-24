@@ -68,13 +68,34 @@ vels_array = np.array([
 #     0.00035,
 #     0.00040
 #     ])
+inits_vals = np.ones(12).reshape(3, 4)
+inits_vals[0] *= -1
+inits_vals[1] *= 0
 
-for data in selected_epoches:
+inits = inits_vals[1]
+for data in selected_epoches[:10]:
     # vels = 0 # -0.20002
+
     for vels in vels_array:
-        print(data, vels)
-        command = "taskset -c 10-79 python Velocity_fitting_function.py --fname {} --dead_vel={}".format(data, round(vels, 8))
-        execute_list.append(command)
+            print(data, vels)
+            # for inits in inits_vals:
+              #  print(inits)
+            init_str = " ".join(map(str, inits))
+            command = "taskset -c 10-79 python Velocity_fitting_function.py --fname {} --dead_vel={}".format(data, round(vels, 8))
+            execute_list.append(command)
+
+# Running for each order
+# for data in selected_epoches[:10]:
+#     # vels = 0 # -0.20002
+
+#     for vels in vels_array:
+#             print(data, vels)
+#             # for inits in inits_vals:
+#               #  print(inits)
+#             init_str = " ".join(map(str, inits))
+#             for order in range(71, 162):
+#                 command = "taskset -c 10-79 python Velocity_fitting_function.py --fname {} --init {} --dead_vel={} --orders {}".format(data, init_str, round(vels, 8), order)
+#                 execute_list.append(command)
 
 def run_sequentially(cmd_list, label):
     for cmd in cmd_list:
@@ -86,6 +107,7 @@ n_threads = 70
 n_batches = 1 + len(execute_list) // n_threads
 batches = [execute_list[i:i + n_batches] for i in range(0, len(execute_list), n_batches)]
 print("Batches", len(batches))
+print(batches)
 # print(batches)
 
 count = sum(len(sublist) for sublist in batches)
