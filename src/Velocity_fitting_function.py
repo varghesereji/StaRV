@@ -40,22 +40,23 @@ jl.seval("using Korg")
 Korg = jl.Korg
 
 
-def make_ref_residue(reference_params, datadir, korg_data_ref, opdir='data/Reference_dir'):
+def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir'):
     print("Calling reference data")
     fname = reference_params['fname']
     fullpath = os.path.join(datadir, fname)
     neid_data_dict = call_neiddata_full(fullpath, opdir, refspec=korg_data_ref)
     params = reference_params['params']
-    # print(neid_data_dict)
-    param_pos = np.array(['r', 'r', 'r', 'v'])
-    residue_dict = residue_profile(params, neid_data=neid_data_dict,
+    # print("Reference", neid_data_dict)
+    param_pos = np.array(['r', 'r', 'r'])
+    residue_dict = residue_profile(neid_data=neid_data_dict,
                                    synt_spectra=None,
                                    area_fact=0.5,
                                    scale_fact=-1,
                                    pca_comp=False,
                                    param_pos=param_pos,
-                                   profile='parabola',
-                                   required='spectra')
+                                   cache_dir=cache_dir,
+                                   profile='poly',
+                                   required='spectra')(params)
     print(residue_dict)
     ref_res = {}
     ref_res['residue'] = residue_dict['Res_noerr']
@@ -74,6 +75,7 @@ def velprofile_fit_function(neid_filename, configfile,
                             order='F',
                             ip_data='epoch',
                             fitting='spectra',
+                            profile='poly',
                             algorithm='ls',
                             save_ip=False,
                             reference_params=None,
@@ -185,7 +187,13 @@ def velprofile_fit_function(neid_filename, configfile,
         files_list = [neid_filename]
 
     # Making Reference residue
-    ref_res = make_ref_residue(reference_params, maindir, korg_data_ref)
+    if reference_params['fname'] == neid_filename:
+        if profile == 'poly':
+            sys.exit()
+        elif profile == 'parabola':
+            ref_res = None
+    else:
+        ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'])
     for onefile in files_list:
         if onefile == "Korg":
             reference_file = "neidL2_20220514T172101.fits"
@@ -223,30 +231,64 @@ def velprofile_fit_function(neid_filename, configfile,
 
     # Initial conditions and bounds
     # init_params3 = [0.649, -1.287, -1.16, 0.03]
-    init_params3 = [-1,-1, 0, 0]
+    # init_params3 = [-1,-1, 0, 0]
+    # init_params3 = [-1, 0, 0]
+    # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) # [0.22706784875, -1.3624070925, -1.36345988825, 1.13305506e-01]
+    init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
+    # init_params3 = np.array([0, 0, 0])
     # init_params3 = [-1, 1]
     # init_params3 = [0.649, -1.287, -1.16, 0.03] # inits# [2, 2, 2, 2]
-    # lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]# -5]#, -1]
-    # upper_bounds = [np.inf, np.inf, np.inf, np.inf] #1]#]
-    lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]# -5]#, -1]
-    upper_bounds = [0, 0, np.inf, np.inf] #1]#]
+    lower_bounds = [-np.inf, -np.inf, -np.inf]# -5]#, -1]
+    upper_bounds = [np.inf, np.inf, np.inf] #1]#]
+    # lower_bounds = [-np.inf, -np.inf, -np.inf]# -5]#, -1]
+    # upper_bounds = [, np.inf, np.inf] #1]#]
 
     bounds = np.array([lower_bounds, upper_bounds]).T
-    param_pos = np.array(['r', 'r', 'r', 'v'])
+    # param_pos = np.array(['r', 'r', 'r', 'v'])
+    param_pos = np.array(['r', 'r', 'r'])
     # param_pos = np.array(['p', 'p', 'p', 'p', 'v'])
-    # param_pos = np.array(['p', 'p', 'p', 'v'])
+    # param_pos = np.array(['p', 'p', 'v'])
     pca = False
-    residue_vel = partial(residue_profile, neid_data=neid_data_dict,
+    # ref_res = None
+    # profile = 'poly'
+    if profile == 'poly':
+        if pca:
+            init_params3 = np.array([0, 0, 0])
+            param_pos = np.array(['p', 'p', 'v'])
+            lower_bounds = [-np.inf, -np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf, np.inf]
+            bounds = np.array([lower_bounds,
+                               upper_bounds]).T
+        else:
+            # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926])
+            init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
+            param_pos = np.array(['r', 'r', 'r'])
+            lower_bounds = [-np.inf, -np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf, np.inf]
+            bounds = np.array([lower_bounds,
+                               upper_bounds]).T
+
+    elif profile == 'parabola':
+        init_params3 = np.array([-1, -1])
+        param_pos = np.array(['r', 'r'])
+        lower_bounds = [-np.inf, -np.inf]
+        upper_bounds = [0, np.inf]
+        bounds = np.array([lower_bounds,
+                           upper_bounds]).T
+    print("Profile: {}".format(profile))
+        
+    residue_vel = residue_profile(neid_data=neid_data_dict,
                           synt_spectra=None,
-                          # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                           area_fact=0.5,
                           scale_fact=-1,
                           pca_comp=pca,
                           param_pos=param_pos,
-                          profile='parabola',
+                          profile=profile,
                           ip_data=ip_data,
-                          ref_res=None, # ref_res,
+                          ref_res=ref_res,
+                          cache_dir=config['data_dir']['CACHE_DIR'],
                           algorithm=algorithm)
+    print(residue_vel)
     if (purpose == 'minimize') or (purpose == 'both'):
         if not os.path.isfile(result_filename):
             print("Start fitting")
@@ -333,7 +375,19 @@ def velprofile_fit_function(neid_filename, configfile,
             if os.path.exists(os.path.join(resultdict, synt_spectra_fname)):
                 os.remove(os.path.join(resultdict, synt_spectra_fname))
         # sys.exit(1)
-        korg_spectra = residue_vel(fitted_params3, required='spectra')
+        korg_spectra =  residue_profile(neid_data=neid_data_dict,
+                          synt_spectra=None,
+                          # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
+                          area_fact=0.5,
+                          scale_fact=-1,
+                          pca_comp=pca,
+                          param_pos=param_pos,
+                          profile='poly',
+                          required='spectra',
+                          ip_data=ip_data,
+                          ref_res=ref_res,
+                          cache_dir=config['data_dir']['CACHE_DIR'],
+                          algorithm=algorithm)(fitted_params3)
         # generating residue for each order
         residue = korg_spectra['Res']
         residue_wl = korg_spectra['Wl']
@@ -347,7 +401,10 @@ def velprofile_fit_function(neid_filename, configfile,
         #     residue_dict[order] = chi2_ord
         # # print(residue_dict)
         # save_dict_to_pickle(residue_dict, os.path.join(resultdict, "Order_residue.pkl"))
-        from utils import plotting_spectra, plot_lines
+        from utils import plotting_spectra, plot_lines, plotting_jacobian
+        with open(os.path.join(resultdict, "least_squares_op.pkl"), 'rb') as res:
+            result = pickle.load(res)
+        # plotting_jacobian(result, korg_spectra)
         plotting_spectra(neid_data_dict,
                          korg_spectra, resultdict+"/Fitted_spectra.pdf",
                          interactive=save_ip)
@@ -442,6 +499,8 @@ parser.add_argument('--save_ip', type=str,
                     default='F', help='Save interactive plot (T, F)')
 parser.add_argument('--orders', type=str,
                     default='F', help='Do for each order (T, F)')
+parser.add_argument('--profile', type=str,
+                    default='poly', help="Profile type, (poly, parabola)")
 
 # Parse args
 args = parser.parse_args()
@@ -466,14 +525,18 @@ ip = args.save_ip
 # print("ip", ip)
 
 if ip == "T" or args.fname == ref_fname:
-    save_ip = True
+    save_ip = False # True
 else:
     save_ip = False
 
 
 # Print info
+# The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
 reference_params = {'fname': 'neidL2_20220402T173047.fits',
-                    'params': np.array([-1.45847855e+00, -3.05012614e-14, -4.61296508e-02, -6.17010467e-01])  # np.array([ 1.70357454, -1.92482808, -1.07396776,  0.04051153])
+                    'params': np.array([0.611103526365, -1.83331057909, -1.15276409477])
+                    # 'params': np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) 
+                    # np.array([ 1.27868421, -2.51000317, -1.04019299,  0.11755702])# np.array([1.03364556, -2.04850628, -1.14747621,  0.11712102])  # np.array([-1.75375084, -0.72116282, 0.11853711])
+                    # 'params': np.array([-1.75608548e+00, -2.96112277e-14, -7.20128987e-01,  1.18575833e-01])  # np.array([ 1.70357454, -1.92482808, -1.07396776,  0.04051153])
                     # 'params': np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628])
                     }
 print("Doing for:", args.fname)
@@ -490,6 +553,7 @@ def process_order(order):
         dead_velocity=args.dead_vel,
         snr=snr_value,
         logfilesave=args.LOG,
+        profile=args.profile,
         purpose=args.purpose,
         fitting=args.fitting,
         save_ip=save_ip,
@@ -516,6 +580,7 @@ except ValueError:
             snr=snr_value,  # Only needed for Korg, but passing anyway
             logfilesave=args.LOG,
             purpose=args.purpose,
+            profile=args.profile,
             fitting=args.fitting,
             save_ip=save_ip,
             inits=args.init,

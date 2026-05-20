@@ -11,6 +11,7 @@ from scipy.ndimage import median_filter
 from itertools import combinations_with_replacement
 from astropy.io import fits
 from scipy.signal import fftconvolve
+from functools import lru_cache
 
 from scipy.interpolate import CubicSpline
 from scipy.special import eval_legendre
@@ -33,7 +34,7 @@ from spectral_synthesis_functions import generate_full_korgspectra
 
 def shifting_korg_flux(wavelength, flux, velocity):
     c = 299792.458
-    # print('Shifting for ', velocity)
+    print('ddoppler Shifting for {}'.format(velocity))
     factor = (velocity/c + 1)
     shifted_wl = wavelength * factor # (velocity/c + 1)
     shifted_flux = CubicSpline(shifted_wl, flux)(wavelength)
@@ -57,33 +58,45 @@ def shifted_legendre(n, x):
 
 
 def reconstruct_params(P):
-    A = np.array([
-        [-8.006031661977676e-07, -1.0378344747491879e-06, 9.805592763351619e-07, 7.171758694512397e-07], # R2
-        [1.6770104905807818e-06, 1.1077466308961756e-06, 1.1793714415403254e-06, 1.8626309124317872e-06],
-        [0.0013778825825720646, -0.0009398767560125336, 0.0011710852824718455, -0.0014231068301804174],
-        [-0.0008899597805274083, 0.001310857825272971, 0.0012012345855433968, -0.0007389162324027525]
-        ])
-    A = A[:, :-1]
+    # A = np.array([
+    #     [-8.006031661977676e-07, -1.0378344747491879e-06, 9.805592763351619e-07, 7.171758694512397e-07], # R2
+    #     [1.6770104905807818e-06, 1.1077466308961756e-06, 1.1793714415403254e-06, 1.8626309124317872e-06],
+    #     [0.0013778825825720646, -0.0009398767560125336, 0.0011710852824718455, -0.0014231068301804174],
+    #     [-0.0008899597805274083, 0.001310857825272971, 0.0012012345855433968, -0.0007389162324027525]
+    #     ])
+    # A = A[:, :-1]
     # mu = np.array([
     #     0.649372,
     #     -1.28694,
     #     -1.145622,
     #     0.034520
     #     ])
+    # mu = np.array([
+    #     0.6493721015974228,
+    #     -1.2869430126272885,
+    #     -1.1456216840921967,
+    #     0.03451986504011774,
+    # ])
+    A = np.array([[-0.032937977555381484, 0.024074427096568495],
+                 [0.031571960296695074, -0.013240645075579883],
+                 [-0.006694995026312799, 0.0014737690483261512],
+                 [0.00067386918102729, 0.0014417111589189976]])
     mu = np.array([
-        0.6493721015974228,
-        -1.2869430126272885,
-        -1.1456216840921967,
-        0.03451986504011774,
-    ])
+        0.7037505720667833,
+        -2.0015633043781254,
+        -1.14648246759313,
+        0.11264740019457169
+        ])
+
     P = np.atleast_2d(P)
     X = mu + P @ A.T
     return X.squeeze()
 
 
 def parabolic_profile(params, x, param_errs=None, purpose="velocity"):
-    profile = params[0] * np.sqrt(x - params[1]) + params[2]
-    print("Parabolic profile", params)
+    # profile = params[0] * np.sqrt(x - params[1]) + params[2]
+    profile = params[0] * np.sqrt(x) + params[1]
+    print("Parabolic profile {}".format(params))
     return profile
 
 
@@ -197,9 +210,28 @@ def profile_penalty(params=None, param_pos=None, raise_params=None, fall_params=
         fall_params = fall_params
 
     n_layers = 56
-    x = np.linspace(0, 1, n_layers)
+    temp_layers = np.load("data/Temp_layers.npy")
+    temp_mask = temp_layers < 8000
+    # vel_profile1 = np.ones(np.size(temp_layers))
+    # vel_profile2 = np.ones(np.size(temp_layers))
+
+    temp_layers = temp_layers[temp_mask]
+    
+    x = (temp_layers - np.min(temp_layers)) / (np.max(temp_layers) - np.min(temp_layers))# np.linspace(0, 1, n_layers)
     velocity_raise = generate_profile(raise_params, x, profile=profile)
     velocity_fall = generate_profile(fall_params, x, profile=profile)
+
+
+    
+    # vel_profile = np.ones(np.size(temp_layers))
+
+    # print("Size", vel_profile1.size, temp_mask.size, velocity_raise.size)
+    # vel_profile1[temp_mask] = velocity_raise
+    # # vel_profile1[~temp_mask] = velocity_raise[-1]
+    # vel_profile2[temp_mask] = velocity_fall
+    # # vel_profile2[~temp_mask] = velocity_fall[-1]
+
+    # vel_pro
 
     # raise_vel_edge_penalty = generate_profile(raise_params, 0)/100# penalty for left edge of Raising lane
     # fall_vel_edge_penalty = generate_profile(fall_params, 0)/100 # penalty for left edge of Falling lane
@@ -231,15 +263,21 @@ def profile_penalty(params=None, param_pos=None, raise_params=None, fall_params=
     # der_penalty = np.array([raise_der_penalty, fall_der_penalty]) * 1000000000
     der_penalty = np.array([raise_der_penalty])
         
-    penalty_array = der_penalty * 0 # 100000 # np.concatenate((prof_penalty, der_penalty)) * 1000000000
+    penalty_array = der_penalty * 100000 # 100000 # np.concatenate((prof_penalty, der_penalty)) * 1000000000
     if const_term is not None:
-        penalty_array = np.concatenate((penalty_array, np.array([np.abs(const_term) * 1000])))
+        penalty_array = np.concatenate((penalty_array, np.abs(const_term) * 500))
     print("Penalty: {}".format(penalty_array))
     return penalty_array
     
 
+def array_to_key(arr, tol=1e-10):
+    return tuple((np.asarray(arr)/tol).astype(int))
 
-def residue_profile(params, neid_data, synt_spectra=None,
+
+
+def residue_profile(neid_data, synt_spectra=None,
+                    raise_cache=None,
+                    fall_cache=None,
                     param_pos=np.array(['r','f']),
                     ref_params=None,
                     profile='poly',
@@ -250,6 +288,7 @@ def residue_profile(params, neid_data, synt_spectra=None,
                     required='residue',
                     ref_res=None,
                     ip_data='epoch',
+                    cache_dir='/data/varghese/Stellar_activity_project_results/spectra_cache/',
                     algorithm='ls'):
     '''
     This function is to return the residue of synthetic and observed spectra.
@@ -261,10 +300,7 @@ def residue_profile(params, neid_data, synt_spectra=None,
     required: 'residue' if need the residue. 'spectra' of the generated spectra is needed.
     ip_data: epoch or average. If epoch, the difference from the result of average will be taken.
     '''
-    print("==============================================")
-    print("Params: {}".format(params))
-    if ref_params is not None:
-        params = ref_params + params
+    
     # avgepoch_result = "/home/varghese/Desktop/Stellar_activity_mitigation/25_Avg/Result_avgdiff/Result_dir_Comb_spectra_3700-9000/fitted_params.pkl"
     # if ip_data == 'epoch':
     #     with open(avgepoch_result, 'rb') as avgres:
@@ -277,11 +313,6 @@ def residue_profile(params, neid_data, synt_spectra=None,
     pca_components_mask = param_pos == 'p'
     scale_mask = param_pos == 'a'
     
-    # Additional velocity
-    if np.sum(add_shift_mask) == 0:
-        add_vel = 0
-    else:
-        add_vel = params[add_shift_mask]
     # Extracting data
     neid_wl_array = dict_to_array(neid_data["Wave"])
     neid_flux_array = dict_to_array(neid_data["Flux"])
@@ -295,152 +326,274 @@ def residue_profile(params, neid_data, synt_spectra=None,
     neid_telluricmask = neid_telluricmask[sort_ind]
     diff_wl = np.diff(neid_wl_array) < 0
     # print(np.where(diff_wl))
-    
-    # Generating spectra
-    if pca_comp:
-        pca_components = params[pca_components_mask]
-        print('pca_comps {}'.format(pca_components))
-        fitting_params = reconstruct_params(pca_components)
-        raise_params = fitting_params[:-1]
-        # print("raise params in if", raise_params)
-        const_term = fitting_params[-1]
-        # raise_params[-1] += const_term
-        add_vel = add_vel + const_term
-        # print('raise_params in cond', raise_params)
-    else:
-        raise_params = params[raise_mask]
-    # raise_params_added = np.insert(raise_params, 0, 0.66181421)
-    print("raise_params {}".format(raise_params))
-    raise_params_shifted = raise_params.copy() # add_vel
-    raise_params_shifted[-1] += add_vel
-    print("added with {} {}".format(add_vel, raise_params_shifted))
-    # raise_params
-    raise_spectra, raise_cont = synt_spectra_for_wavelength(raise_params_shifted, neid_wl_array, synt_spectra=synt_spectra, cont_divide=False,
-                                                            profile=profile)
-    fall_spectra = 0
-    total_cont = raise_cont
-    penalty = np.array([0, 0, 0, 0])
-    falling_lane = False
 
-    if np.sum(fall_mask) > 0:
-        fall_params = params[fall_mask]
-        falling_lane = True
-        # penalty = profile_penalty(params, param_pos)
-    elif np.sum(fall_mask) == 0:
-        if (np.sum(scale_mask) == 1) and scale_fact is None:
-            params_scale_fact = params[scale_mask]
-        elif (np.sum(scale_mask) == 0) and scale_fact is not None:
-            params_scale_fact = scale_fact
-    
-        if profile == 'poly':
-            fall_params = params_scale_fact * raise_params # np.insert(params[raise_mask], 0, 0.66181421)
-        elif profile == 'parabola':
-            fall_params = raise_params.copy()
-            fall_params[0] = -1 * raise_params[0]
-            fall_params[-1] = -1 * raise_params[-1] 
-        falling_lane = True
-    
-    if falling_lane:
+    @lru_cache(maxsize=7)
+    def cached_synthesis(raise_params_key, fall_params_key):
+        raise_params = np.array(raise_params_key, dtype=float)
+        print("Synthesise {} {}".format(raise_params_key, fall_params_key))
+        spectra, cont = synt_spectra_for_wavelength(raise_params,
+                                                    neid_wl_array,
+                                                    synt_spectra=synt_spectra,
+                                                    cont_divide=False,
+                                                    profile=profile)
         
-        stellar_params = {'temp':5321} #5570}
-        fall_params[-1] += add_vel
-        print('fall params {}'.format(fall_params))
-        fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params, neid_wl_array, synt_spectra=synt_spectra,
-                                                              stellar_params=stellar_params, cont_divide=False,
-                                                              profile=profile)
-        # print("Generating falling lane")
-        penalty = profile_penalty(raise_params=raise_params, fall_params=fall_params, const_term=None, profile=profile)
-        # params[-1])
-                                  # params[-1])
-        # if area_fact is None:
-        #     a = params[scale_mask]
-        # else:
-        #     a = scale_fact
-        
-        total_flux = area_fact * raise_spectra + (1-area_fact) * fall_spectra # raise_spectra + ((1-a)/(1+a)) * fall_spectra
-        total_cont = area_fact * raise_cont + (1-area_fact)*fall_cont
-        if not contnorm:
-            total_cont = 1
-        synt_spectra = total_flux / total_cont
+        if fall_params_key is not None:
+            fall_params = np.array(fall_params_key, dtype=float)
+            stellar_params = {'temp':5321}
+            fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params,
+                                                                  neid_wl_array,
+                                                                  synt_spectra=synt_spectra,
+                                                                  stellar_params=stellar_params,
+                                                                  cont_divide=False,
+                                                                  profile=profile)
+            # plt.figure()
+            # plt.plot(neid_wl_array, spectra)
+            # plt.plot(neid_wl_array, fall_spectra / (cont+fall_cont))
+            # plt.show()
+            return spectra, cont, fall_spectra, fall_cont
+
+        return spectra, cont
+
+    def residue_fun(params):
+        print("==============================================")
+        print("Params: {}".format(params))
+        itertime_beg = time.time()
+        if ref_params is not None:
+            params = ref_params + params
+            # Additional velocity
+        if np.sum(add_shift_mask) == 0:
+            add_vel = 0
         else:
-            residue = inner_shift_fit(raise_spectra / total_cont,
-                                      fall_spectra / total_cont,
-                                      neid_flux_array,
-                                      neid_wl_array,
-                                      neid_err_array)
-            if required == 'residue':
+            add_vel = params[add_shift_mask]
+
+        # Generating spectra
+        if pca_comp:
+            pca_components = params[pca_components_mask]
+            print('pca_comps {}'.format(pca_components))
+            fitting_params = reconstruct_params(pca_components)
+            raise_params = fitting_params[:-1]
+            # print("raise params in if", raise_params)
+            const_term = fitting_params[-1]
+            # raise_params[-1] += const_term
+            add_vel = add_vel + const_term
+            const_term_penalty = add_vel
+            # print('raise_params in cond', raise_params)
+        else:
+            raise_params = params[raise_mask]
+            const_term_penalty = None
+        # raise_params_added = np.insert(raise_params, 0, 0.66181421)
+        print("raise_params {}".format(raise_params))
+        raise_params_shifted = raise_params.copy() # add_vel
+        profile_constant = raise_params_shifted[-1]
+        raise_params_shifted[-1] = 0
+        # raise_params_shifted[-1] += add_vel
+        # print("added with {} {}".format(add_vel, raise_params_shifted))
+        # raise_params
+        raise_key = tuple(np.asarray(raise_params_shifted, dtype=float).tolist())
+        # raise_spectra, raise_cont = cached_synthesis(raise_key)
+        fall_spectra = 0
+        # total_cont = raise_cont
+        penalty = np.array([0, 0, 0, 0])
+        falling_lane = False
+
+        if np.sum(fall_mask) > 0:
+            fall_params = params[fall_mask]
+            falling_lane = True
+            # penalty = profile_penalty(params, param_pos)
+        elif np.sum(fall_mask) == 0:
+            if (np.sum(scale_mask) == 1) and scale_fact is None:
+                params_scale_fact = params[scale_mask]
+            elif (np.sum(scale_mask) == 0) and scale_fact is not None:
+                params_scale_fact = scale_fact
+
+            if profile == 'poly':
+                fall_params = params_scale_fact * raise_params # np.insert(params[raise_mask], 0, 0.66181421)
+            elif profile == 'parabola':
+                fall_params = raise_params.copy()
+                fall_params[0] = -1 * raise_params[0]
+                fall_params[-1] = -1 * raise_params[-1] 
+            falling_lane = True
+
+        if falling_lane:
+
+            # stellar_params = {'temp':5321} #5570}
+            # fall_params[-1] += add_vel
+            fall_params[-1] = 0
+            print('fall params {}'.format(fall_params))
+            filename_suffix = "_".join(map(str, raise_key))
+            if pca_comp:
+                cache_filename = "Raise_Fall_pca_" + profile + "_" + filename_suffix + ".fits"
+            else:
+                cache_filename = "Raise_Fall_" + profile + "_" + filename_suffix + ".fits"
+            cache_fullpath = os.path.join(cache_dir, cache_filename)
+            if os.path.isfile(cache_fullpath):
+                print("Cache file exists. Calling it")
+                raise_spectra = fits.getdata(cache_fullpath, ext=1)
+                raise_cont = fits.getdata(cache_fullpath, ext=2)
+                fall_spectra = fits.getdata(cache_fullpath, ext=3)
+                fall_cont = fits.getdata(cache_fullpath, ext=4)
+                cache_wl = fits.getdata(cache_fullpath, ext=5)
+                raise_spectra = CubicSpline(cache_wl, raise_spectra, extrapolate=True)(neid_wl_array)
+                raise_cont = CubicSpline(cache_wl, raise_cont, extrapolate=True)(neid_wl_array)
+                fall_spectra = CubicSpline(cache_wl, fall_spectra, extrapolate=True)(neid_wl_array)
+                fall_cont = CubicSpline(cache_wl, fall_cont, extrapolate=True)(neid_wl_array)
+            else:
+                fall_key = tuple(np.asarray(fall_params, dtype=float).tolist())
+                raise_spectra, raise_cont, fall_spectra, fall_cont = cached_synthesis(raise_key, fall_key)
+                primary_hdu = fits.PrimaryHDU()
+                hdu_raise_spe = fits.ImageHDU(data=raise_spectra, name="RAISE_SPEC")
+                hdu_raise_cont = fits.ImageHDU(data=raise_cont, name="RAISE_CONT")
+                hdu_fall_spe = fits.ImageHDU(data=fall_spectra, name="FALL_SPEC")
+                hdu_fall_cont = fits.ImageHDU(data=fall_cont, name="FALL_CONT")
+                hdu_wl = fits.ImageHDU(data=neid_wl_array, name="WAVE")
+                hdul = fits.HDUList([primary_hdu,
+                                     hdu_raise_spe,
+                                     hdu_raise_cont,
+                                     hdu_fall_spe,
+                                     hdu_fall_cont,
+                                     hdu_wl])
+                hdul.writeto(cache_fullpath, overwrite=True)
+                # print("Written cache", cache_fullpath)
+            # plt.figure()
+            # plt.plot(neid_wl_array, raise_spectra / (raise_cont + fall_cont))
+            # plt.plot(neid_wl_array, fall_spectra / (raise_cont + fall_cont))
+            # plt.show()
+            
+            raise_spectra = shifting_korg_flux(neid_wl_array, raise_spectra, profile_constant)
+            fall_spectra = shifting_korg_flux(neid_wl_array, fall_spectra, -1*profile_constant)
+            # print("Generating falling lane")
+            penalty = profile_penalty(raise_params=raise_params, fall_params=fall_params, const_term=None, # np.array([params[-1]]),
+                                      profile=profile)
+            # params[-1])
+            # params[-1])
+            # if area_fact is None:
+            #     a = params[scale_mask]
+            # else:
+            #     a = scale_fact
+
+            total_flux = area_fact * raise_spectra + (1-area_fact) * fall_spectra # raise_spectra + ((1-a)/(1+a)) * fall_spectra
+            total_cont = area_fact * raise_cont + (1-area_fact)*fall_cont
+            if not contnorm:
+                total_count = 1
+            synt_spectra = total_flux / total_cont
+            # plt.figure()
+            # plt.plot(neid_wl_array, total_flux)
+            # plt.plot(neid_wl_array, total_cont)
+            # plt.plot(neid_wl_array, area_fact * raise_spectra, color='blue')
+            # plt.plot(neid_wl_array, area_fact * raise_cont)
+            # plt.plot(neid_wl_array, (1-area_fact) * fall_spectra, color='green')
+            # print("Raise", area_fact * raise_spectra)
+            # print("Fall", (1-area_fact) * fall_spectra)
+            # plt.plot(neid_wl_array, (1-area_fact) * fall_cont)
+            # plt.show()
+
+        else:
+            if not contnorm:
+                raise_cont = 1
+            synt_spectra = raise_spectra / raise_cont
+            fall_spectra = np.nan
+        synt_spectra = shifting_korg_flux(neid_wl_array, synt_spectra, add_vel) # Adding a global doppler shift
+       #  print("*******Ref res", ref_res)
+        if ref_res is not None:
+            print("Residue subtraction happens")
+            ref_residue = ref_res['residue']
+            ref_err = ref_res['err']
+            ref_wl = ref_res['Wl']
+            residue_0 = CubicSpline(ref_wl, ref_residue)(neid_wl_array)
+            ref_flux = ref_res['data']
+            ref_synt = ref_res['synt']
+            flux0 = CubicSpline(ref_wl, ref_flux)(neid_wl_array)
+            err_0 = CubicSpline(ref_wl, ref_err)(neid_wl_array)
+            synt0 = CubicSpline(ref_wl, ref_synt)(neid_wl_array)
+            # fig, axs = plt.subplots(3)
+            # plt.plot(ref_wl, ref_flux)
+            data_diff = neid_flux_array - flux0
+            synt_diff = synt_spectra - synt0
+            total_err = np.sqrt(neid_err_array**2 + err_0**2)
+            # axs[0].plot(neid_wl_array, neid_flux_array, alpha=0.7)
+            # axs[0].plot(ref_wl, ref_flux, alpha=0.7)
+            # axs[0].plot(neid_wl_array, flux0, alpha=0.7)
+            # axs[1].plot(neid_wl_array, synt_spectra - synt0)
+            # axs[1].plot(neid_wl_array[neid_telluricmask == 1], (neid_flux_array - ref_flux)[neid_telluricmask == 1])
+            # axs[1].plot(neid_wl_array, neid_telluricmask)
+            err_0 = CubicSpline(ref_wl, ref_err)(neid_wl_array)
+            err_mask = neid_telluricmask == 1
+            # print(np.sum(err_mask), np.size(err_mask))
+
+            # err_final = np.sqrt(neid_err_array**2 + err_0**2)
+            # res_check = data_diff / err_final
+            # print("Fundamental lower limit on residue", np.sum((res_check[err_mask])**2))
+            # axs[2].plot(neid_wl_array[err_mask], neid_err_array[err_mask])
+
+            # axs[2].plot(neid_wl_array[err_mask], err_0[err_mask])
+            # plt.show()
+
+
+            current_residue = (neid_flux_array - synt_spectra)
+            # residue = (current_residue - residue_0) / total_err
+            telluricmask = neid_telluricmask == 0
+            total_err[telluricmask] = total_err[telluricmask] * 100000
+            # plt.figure()
+            # plt.plot(neid_wl_array, total_err)
+            # plt.plot(neid_wl_array[telluricmask], total_err[telluricmask], 'ok')
+            # plt.show()
+            residue = (data_diff - synt_diff) / total_err
+            residue_noerr = (current_residue - residue_0)
+            err_array = total_err
+        else:
+            
+            # res_0 = np.load('data/Reference_residue.npy')
+            telluricmask = neid_telluricmask == 0
+            neid_err_array[telluricmask] = neid_err_array[telluricmask] * 10000
+            residue = (neid_flux_array - synt_spectra) / neid_err_array
+            # plt.figure()
+            # plt.plot(neid_wl_array, neid_flux_array)
+            # plt.plot(neid_wl_array, synt_spectra)
+            # plt.plot(neid_wl_array[telluricmask], neid_flux_array[telluricmask], '.k', alpha=0.5)
+            # plt.ylim(0, 1.5)
+            # plt.title("data and synt")
+            # plt.show()
+            residue_noerr = (neid_flux_array - synt_spectra) # - res_0
+            residue_0 = residue_noerr
+            current_residue = residue_0
+        # print(f"removed {np.where(np.isnan(residue))}")
+        nanmask = ~np.isnan(residue) & (neid_telluricmask == 1)
+        residue_masked = residue# [nanmask]
+        residue = np.concatenate((residue_masked, penalty))
+        cost = np.sum(residue**2)/2
+        no_points = np.sum(neid_telluricmask == 1)
+        print("cost {}".format(cost))
+        print("Reduced chi2: {}".format(cost / no_points))
+        # plt.figure()
+        # plt.plot(neid_wl_array, residue)
+        # plt.show()
+
+        print("Time taken for iteration: {}s".format(time.time() - itertime_beg))
+        if required == 'residue':
+            if algorithm == 'ls':                
                 return residue
-    else:
-        if not contnorm:
-            raise_cont = 1
-        synt_spectra = raise_spectra / raise_cont
-        fall_spectra = np.nan
-    if ref_res is not None:
-        print("Residue subtraction happens")
-        ref_residue = ref_res['residue']
-        ref_err = ref_res['err']
-        ref_wl = ref_res['Wl']
-        residue_0 = CubicSpline(ref_wl, ref_residue)(neid_wl_array)
-        ref_flux = ref_res['data']
-        ref_synt = ref_res['synt']
-        flux0 = CubicSpline(ref_wl, ref_flux)(neid_wl_array)
-        synt0 = CubicSpline(ref_wl, ref_synt)(neid_wl_array)
-        # fig, axs = plt.subplots(3)
-        # plt.plot(ref_wl, ref_flux)
-        data_diff = neid_flux_array - flux0
-        synt_diff = synt_spectra - synt0
-        total_err = np.sqrt(neid_err_array**2 + err_0**2)
-        # axs[0].plot(neid_wl_array, neid_flux_array - flux0)
-        # axs[1].plot(neid_wl_array, synt_spectra - synt0)
-        err_0 = CubicSpline(ref_wl, ref_err)(neid_wl_array)
-        err_mask = neid_telluricmask == 1
-        print(np.sum(err_mask), np.size(err_mask))
-        
-        # err_final = np.sqrt(neid_err_array**2 + err_0**2)
-        # res_check = data_diff / err_final
-        print("Fundamental lower limit on residue", np.sum((res_check[err_mask])**2))
-        axs[2].plot(neid_wl_array[err_mask], neid_err_array[err_mask])
-        
-        axs[2].plot(neid_wl_array[err_mask], err_0[err_mask])
-        plt.show()
+            elif algorithm == 'diff':
+                square_sum = np.sum(np.concatenate((residue**2, penalty)))
+                return square_sum
+        elif required == 'spectra':
+            raise_spectra = area_fact*raise_spectra/total_cont
+            fall_spectra = (1-area_fact)*fall_spectra/total_cont
+            spectra_dict = {"Raise":raise_spectra,
+                            "Fall":fall_spectra,
+                            "Total":synt_spectra,
+                            "data":neid_flux_array,
+                            "Res":residue[:-1],
+                            "Res_noerr": residue_noerr,
+                            "err": neid_err_array,
+                            "r0": residue_0,
+                            "r": current_residue,
+                            "Wl":neid_wl_array,
+                            "nanmask":nanmask}
+            return spectra_dict
 
+    return residue_fun
+    # elif required == 'spectra':
         
-        # current_residue = (neid_flux_array - synt_spectra)
-        # residue = (current_residue - residue_0) / total_err
-        residue = (data_diff - synt_diff) / total_err
-        residue_noerr = (current_residue - residue_0)
-        neid_err_array = total_err
-    else:
-        residue = (neid_flux_array - synt_spectra) / neid_err_array
-        # res_0 = np.load('data/Reference_residue.npy')
-        residue_noerr = (neid_flux_array - synt_spectra) # - res_0
-        residue_0 = residue_noerr
-        current_residue = residue_0
-    print(f"removed {np.where(np.isnan(residue))}")
-    nanmask = ~np.isnan(residue) & (neid_telluricmask == 1)
-    residue = residue[nanmask]
-    if required == 'residue':
-        if algorithm == 'ls':
-            residue = np.concatenate((residue, penalty))
-            return residue
-        elif algorithm == 'diff':
-            square_sum = np.sum(np.concatenate((residue**2, penalty)))
-            return square_sum
-
-    elif required == 'spectra':
-        raise_spectra = area_fact*raise_spectra/total_cont
-        fall_spectra = (1-area_fact)*fall_spectra/total_cont
-        spectra_dict = {"Raise":raise_spectra[nanmask],
-                        "Fall":fall_spectra[nanmask],
-                        "Total":synt_spectra[nanmask],
-                        "data":neid_flux_array[nanmask],
-                        "Res":residue,
-                        "Res_noerr": residue_noerr[nanmask],
-                        "err": neid_err_array[nanmask],
-                        "r0": residue_0[nanmask],
-                        "r": current_residue[nanmask],
-                        "Wl":neid_wl_array[nanmask]}
-        return spectra_dict
 
 def residue_ccf(params, neid_fname, opdir, ccf_function=None):
     print("Params", params)
