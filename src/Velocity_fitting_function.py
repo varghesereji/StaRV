@@ -21,7 +21,7 @@ from utils import save_synt_data
 from utils import inject_vel_neidata
 
 from functools import partial
-
+import subprocess
 import pickle
 
 # from model_functions import residue_scale_factor
@@ -85,6 +85,7 @@ def velprofile_fit_function(neid_filename, configfile,
     reference params: dict. {fname: Fname of reference file, params: Reference parameters}
     or {residue: reference residue, err: error of reference file, Wl: wavelength of reference residue}
     '''
+    pca = True
     if order == 'F':
         order = None
     else:
@@ -157,9 +158,9 @@ def velprofile_fit_function(neid_filename, configfile,
     result_files_list = ['fitted_params.pkl', 'Data_CCF.fits', 'Synt_CCF.fits']
     truth_list = np.array([os.path.isfile(os.path.join(resultdict, i)) for i in result_files_list])
     # print("Truth_list", truth_list)
-    # if np.sum(truth_list) == len(result_files_list):
-    #     #print("All required result files exist already")
-    #     sys.exit()
+    if np.sum(truth_list) == len(result_files_list):
+        print("All required result files exist already")
+        sys.exit()
     if os.path.isfile(korg_data_name):
         print("The reference Korg data already exists. Calling that one")
         with open(korg_data_name, 'rb') as korgspec:
@@ -229,12 +230,43 @@ def velprofile_fit_function(neid_filename, configfile,
 
     # plot_fname = config['outputs']['SPEC_PRIFIX']
 
+    # dC shift fiting.
+    param_pos = np.array(['v'])
+    lower_bounds = [-np.inf]
+    upper_bounds = [np.inf]
+    init_params1 = [0]
+    residue_vel_const = residue_profile(neid_data=neid_data_dict,
+                                        synt_spectra=None,
+                                        area_fact=0.5,
+                                        scale_fact=-1,
+                                        pca_comp=pca,
+                                        param_pos=param_pos,
+                                        profile=profile,
+                                        ip_data=ip_data,
+                                        ref_res=ref_res,
+                                        cache_dir=config['data_dir']['CACHE_DIR'],
+                                        algorithm=algorithm)
+    result_init = least_squares(residue_vel_const,
+                                init_params1,
+                                bounds=(lower_bounds, upper_bounds),
+                                x_scale='jac',
+                                jac='3-point',
+                                verbose=2,
+                                xtol=None,
+                                gtol=None,
+                                method='trf',
+                                loss='linear',
+                                max_nfev=1000)
+    print("Init result:", result_init)
+    # sys.exit()
+
+    
     # Initial conditions and bounds
     # init_params3 = [0.649, -1.287, -1.16, 0.03]
     # init_params3 = [-1,-1, 0, 0]
     # init_params3 = [-1, 0, 0]
     # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) # [0.22706784875, -1.3624070925, -1.36345988825, 1.13305506e-01]
-    init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
+    # init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
     # init_params3 = np.array([0, 0, 0])
     # init_params3 = [-1, 1]
     # init_params3 = [0.649, -1.287, -1.16, 0.03] # inits# [2, 2, 2, 2]
@@ -248,15 +280,15 @@ def velprofile_fit_function(neid_filename, configfile,
     param_pos = np.array(['r', 'r', 'r'])
     # param_pos = np.array(['p', 'p', 'p', 'p', 'v'])
     # param_pos = np.array(['p', 'p', 'v'])
-    pca = False
+
     # ref_res = None
     # profile = 'poly'
     if profile == 'poly':
         if pca:
-            init_params3 = np.array([0, 0, 0])
-            param_pos = np.array(['p', 'p', 'v'])
-            lower_bounds = [-np.inf, -np.inf, -np.inf]
-            upper_bounds = [np.inf, np.inf, np.inf]
+            init_params3 = np.array([0, 0, 0, result_init.x[0]])
+            param_pos = np.array(['p', 'p', 'p', 'v'])
+            lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf, np.inf, np.inf]
             bounds = np.array([lower_bounds,
                                upper_bounds]).T
         else:
@@ -345,6 +377,7 @@ def velprofile_fit_function(neid_filename, configfile,
             if pca:
                 pca_comps = pca_array_result[:-1]
                 profile_params = reconstruct_params(pca_comps)
+                profile_params = np.concatenate((profile_params, np.array([0])))
                 profile_params[-1] += additional_constant
             else:
                 profile_params = pca_array_result
@@ -364,6 +397,7 @@ def velprofile_fit_function(neid_filename, configfile,
             with open(result_filename, 'rb') as opfile:
                 fitted_params3 = pickle.load(opfile)['profile_params']
         print("profile params", fitted_params3)
+        param_pos = np.array(['r', 'r', 'r', 'v'])
         save_synt_data(fitted_params3, fullpath, resultdict, save_interactive_plots=save_ip)
         print('resultdict', resultdict)
         print(os.path.dirname(fullpath))
@@ -380,7 +414,7 @@ def velprofile_fit_function(neid_filename, configfile,
                           # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                           area_fact=0.5,
                           scale_fact=-1,
-                          pca_comp=pca,
+                          pca_comp=False,
                           param_pos=param_pos,
                           profile='poly',
                           required='spectra',
@@ -456,7 +490,10 @@ def velprofile_fit_function(neid_filename, configfile,
         plt.ylabel("Reduced chi2")
         plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
     print("====================== The End ===============================")
-
+    print("Running Result")
+    subprocess.run([sys.executable,
+                    "Result_analysis.py",
+                    dead_velocity])
 # print("Arguements:", sys.argv)
 
 
