@@ -56,6 +56,11 @@ def call_neid_data(order=100, neid_filename='/home/varghese/Desktop/Stellar_acti
     neid_var = fits.getdata(neid_filename, ext=4)[order]# [~fsr_mask]
     sciblaze = fits.getdata(neid_filename, ext=15)[order]# [~fsr_mask]
     wl = fits.getdata(neid_filename, ext=7)[order]# [~fsr_mask]
+
+    tellurics = fits.getdata(neid_filename, ext=10)
+    full_tellurics = tellurics[:, :, 0] * tellurics[:, :, 1]
+    neid_flux = neid_flux / full_tellurics[order]
+    neid_var = neid_var / (full_tellurics[order])**2
     # print(wl, np.all(fsr_mask))
     # np.set_printoptions(threshold=np.inf)
     # print(fsr_mask)
@@ -109,10 +114,11 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
     # )
     buttons = []
     # index_list = [88, 87, 86, 85, 84, 80]
-    skip_order = [75]
+    skip_order = []
     # shifted_flux_array = fits.getdata(neid_filename, ext=1).copy()
     # shifted_var_array = fits.getdata(neid_filename, ext=4).copy()
     # print(shifted_flux_array, 'before_shift')
+    # fig1, axs1 = plt.subplots()
     if sel_order is None:
         indices = range(neid_arrays)
     else:
@@ -173,7 +179,7 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
             # if plotlyfig !=False:
             #     plot_plotly(plotlyfig, filtered_wl, filtered_flux, 1, 1, 'red', 'NEID')
             if scaled_order:
-                scaled_flux, scaled_err = order_scaleing(filtered_flux, filtered_wl, filtered_err, axs,
+                scaled_flux, scaled_err = order_scaleing(filtered_flux, filtered_wl, filtered_err, axs, telluric_mask,
                                                          korg_spectra=refspec, plotlyfig=plotlyfig,
                                                          verbose=verbose)
             else:
@@ -193,6 +199,11 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
             neid_data["Wave"][173-index] = filtered_wl
             neid_data["Err"][173-index] = scaled_err
             neid_data["mask"][173-index] = telluric_mask
+            # plt.figure()
+            # plt.plot(filtered_wl, filtered_err, color='red')
+            # plt.plot(filtered_wl, scaled_err, color='blue')
+            # plt.show()
+            # print('plotting axs1')
             espresso_file = '../G2_espresso.txt'
             espresso_lines = import_espresso_lines(espresso_file)
             # for cent in espresso_lines:
@@ -232,6 +243,7 @@ def call_neiddata_full(neid_filename, resultdict, refspec=None, scaled_order=Tru
     # hdul[4].data = shifted_var_array
     # hdul.flush()
     # hdul.close()
+    # fig1.show()
     pdf.close()
     # html_str = mpld3.fig_to_html(fig)
     # with open(resultdict+"/NEID_spectra_comparison.html", 'w') as f:
@@ -363,7 +375,7 @@ def generate_fakedata(velocity_params, snr, reference_file, resultdict):
 
 
 
-def order_scaling_residue(params, neid_flux, neid_wl, neid_err, korg_flux, profile_fitting=True):
+def order_scaling_residue(params, neid_flux, neid_wl, neid_err, korg_flux, mask, profile_fitting=True):
     # The function to get the continuum profile of the spectra.
     from model_functions import generate_profile
 
@@ -376,18 +388,18 @@ def order_scaling_residue(params, neid_flux, neid_wl, neid_err, korg_flux, profi
         # print('profile_fitting')
         # print(params)
         scaled_flux = neid_flux * profile
-        residue = (scaled_flux - korg_flux) / neid_err
+        residue = (scaled_flux - korg_flux) / (neid_err)
         # print("Residue", residue, "chi2", np.sum(residue**2))
         # print(residue)
         # print(np.isnan(residue))
-        return residue
+        return residue[mask]
     else:
         return profile
     
 
 
 
-def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyfig=None,verbose=True):
+def order_scaleing(neid_flux, neid_wl, neid_err, axs, telluric_mask, korg_spectra=None, plotlyfig=None,verbose=True):
     'This function is to find the polynomial which is using to scale the spectrum'
     vel_profile = False # generate_profile(velocity_params, np.linspace(0, 1, 56))
     if verbose==True:
@@ -409,7 +421,7 @@ def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyf
     residue_function = partial(order_scaling_residue, neid_flux=neid_flux,
                                neid_wl=neid_wl,
                                neid_err=neid_err,
-                               korg_flux=transformed_korg_flux)
+                               korg_flux=transformed_korg_flux, mask=telluric_mask)
     fitted_result = least_squares(residue_function, x0=init_cond,
                                   method='trf',
                                   verbose=verbose)
@@ -424,12 +436,12 @@ def order_scaleing(neid_flux, neid_wl, neid_err, axs, korg_spectra=None, plotlyf
 
     residue = residue_function(fitted_params, profile_fitting=True)
     
-    axs[2].plot(neid_wl, residue, color='b', label='residue')
+    axs[2].plot(neid_wl[telluric_mask], residue, color='b', label='residue')
     # axs.add_trace(go.Scatter(x=neid_wl, y=residue, color='blue', name='residue'),
     grad_korg = np.gradient(transformed_korg_flux, axis=0) / np.gradient(neid_wl, axis=0)
     grad2_korg = np.gradient(grad_korg, axis=0) / np.gradient(neid_wl, axis=0)
-    axs[2].plot(neid_wl, grad_korg, color='g', alpha=0.6, label='d Korg')
-    axs[2].plot(neid_wl, grad2_korg, color='orange', alpha=0.4, label='d2 Korg')
+    # axs[2].plot(neid_wl, grad_korg, color='g', alpha=0.6, label='d Korg')
+    # axs[2].plot(neid_wl, grad2_korg, color='orange', alpha=0.4, label='d2 Korg')
     
     axs[2].legend()
     scaled_flux = neid_flux * profile
@@ -456,11 +468,20 @@ def mask_creation(wavelengths):
     This function is to generate a mask for telluric regions
     '''
     masking_region = []
-    with open('data/Masked_regions_modified.csv', newline='') as csvfile:
+    #$ filename = 'data/Masked_regions_modified.csv'
+    filename = 'data/Telluric_mask.csv'
+    with open(filename, newline='') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)
         for row in reader:
             masking_region.append((float(row[0]), float(row[1])))
+    filename_bad = 'data/Bad_regions_mask.csv'
+    with open(filename_bad, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader)
+        for row in reader:
+            masking_region.append((float(row[0]), float(row[1])))
+
     mask = np.ones_like(wavelengths, dtype=bool)
     # print(wavelengths)
     for start, end in masking_region:
@@ -470,6 +491,9 @@ def mask_creation(wavelengths):
         mask &= ~((wavelengths >= start) & (wavelengths <= end))
         # print(start, end, mask)
     # print(np.size(wavelengths), np.sum(mask))
+    # mask = np.ones_like(wavelengths, dtype=bool)
+    # print(wavelengths)
+
     return mask
     
 
@@ -509,14 +533,14 @@ def save_synt_data(params, neid_fname, opdir, save_interactive_plots=False):
         # else:
         #     plotlyfig = False
         from model_functions import residue_profile
-        
-        synt_spectra = residue_profile(params, neid_data,
+        print("Cost will look so high because here we are not continuum normalising or scaling to match with Korg spectra")
+        synt_spectra = residue_profile(neid_data,
                                        param_pos=np.array(['r', 'r', 'r', 'v']),
                                        scale_fact=-1,
                                        area_fact=0.5,
                                        contnorm=False,
                                        pca_comp=False,
-                                       required='spectra')
+                                       required='spectra')(params)
         if save_interactive_plots:
             pickle.dump(synt_spectra, open(os.path.join(opdir, "Synthetic_spectra.pkl"), "wb"))
             
@@ -664,7 +688,19 @@ def plot_plotly(fig, x, y, row, col, color,name):
 def plot_matplotlib(axs, x, y, row, col, **kwargs):
     axs[row].plot(x, y, **kwargs)
 
+def plotting_jacobian(result, korg_data):
+    korg_wl = korg_data["Wl"]
+    jacobian = result.jac
+    residue = result.fun
+    fig, axs = plt.subplots(5, sharex=True)
+    axs[0].plot(korg_wl, residue[:-1])
+    axs[0].set_ylabel("Residue")
+    for i in range(4):
+        axs[i+1].plot(korg_wl, jacobian[:, i][:-1], color='red')
+        axs[i+1].set_ylabel(f"J{4-i}")
+    plt.show()
 
+    
 def plotting_spectra(neid_data, korg_data, filename, interactive=False):
 
     orders_list = list(neid_data["Flux"].keys())
@@ -675,8 +711,26 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
     korg_residue = korg_data["Res"]
     residue_0 = korg_data["r0"]
     current_residue = korg_data["r"]
+    data = korg_data['data']
     korg_wl = korg_data["Wl"]
     opdir = os.path.split(filename)[0]
+    fig, axs = plt.subplots(2, sharex=True)
+    axs[0].plot(korg_wl, data)
+    axs[0].plot(korg_wl, korg_total)
+    axs[0].set_ylim(-0.1, 2)
+    axs[1].plot(korg_wl, korg_residue)
+    # mask = np.abs(korg_residue) > 6
+    # spread_mask = mask.copy()
+    # for shift in range(1, 2):
+    #     spread_mask[shift:] |= mask[:-shift]
+    #     spread_mask[:-shift] |= mask[shift:]
+    # axs[1].plot(korg_wl, korg_residue, 'ok')
+    # axs[1].plot(korg_wl[spread_mask], korg_residue[spread_mask], 'ok')
+    plt.show()
+    # from make_telluricmask import get_mask_edges
+    # start, ends = get_mask_edges(spread_mask, korg_wl)
+    # stacked = np.vstack((start, ends)).T
+    # np.savetxt("data/Bad_regions_mask.csv", stacked, delimiter=",", header="Start, End")
     # print(korg_raise.shape, korg_wl.shape)
     for order in orders_list:
         fig, axs = plt.subplots(2, figsize=(16, 8), sharex=True)
@@ -741,7 +795,7 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
                 """)
             
         if korg_fall is not None:
-            korg_fall_order = CubicSpline(korg_wl, korg_total)(neid_wls)  # korg_fall[neid_wl_mask]
+            korg_fall_order = CubicSpline(korg_wl, korg_fall)(neid_wls)  # korg_fall[neid_wl_mask]
 
             plot_matplotlib(axs, neid_wls, korg_fall_order, 0, 0, color="green", label="Korg Fall")
         
