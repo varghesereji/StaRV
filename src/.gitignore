@@ -1,2 +1,6 @@
 src_old
+src2
 *~
+*/
+!src/
+*.html
