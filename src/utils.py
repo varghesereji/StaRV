@@ -475,6 +475,13 @@ def mask_creation(wavelengths):
         next(reader)
         for row in reader:
             masking_region.append((float(row[0]), float(row[1])))
+    # filename_bad = 'data/Bad_regions_mask.csv'
+    filename_bad = 'data/badregion_0.3.csv'
+    with open(filename_bad, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        next(reader)
+        for row in reader:
+            masking_region.append((float(row[0]), float(row[1])))
     filename_bad = 'data/Bad_regions_mask.csv'
     with open(filename_bad, newline='') as csvfile:
         reader = csv.reader(csvfile)
@@ -535,7 +542,8 @@ def save_synt_data(params, neid_fname, opdir, save_interactive_plots=False):
         from model_functions import residue_profile
         print("Cost will look so high because here we are not continuum normalising or scaling to match with Korg spectra")
         synt_spectra = residue_profile(neid_data,
-                                       param_pos=np.array(['r', 'r', 'r', 'v']),
+                                       # param_pos=np.array(['r', 'r', 'r', 'v']),
+                                       param_pos=np.array(['r', 'v']), # Remove this when use more parameters
                                        scale_fact=-1,
                                        area_fact=0.5,
                                        contnorm=False,
@@ -701,7 +709,7 @@ def plotting_jacobian(result, korg_data):
     plt.show()
 
     
-def plotting_spectra(neid_data, korg_data, filename, interactive=False):
+def plotting_spectra(neid_data, korg_data, filename, ref_spec=None, interactive=False):
 
     orders_list = list(neid_data["Flux"].keys())
     pdf = PdfPages(filename)
@@ -714,11 +722,27 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
     data = korg_data['data']
     korg_wl = korg_data["Wl"]
     opdir = os.path.split(filename)[0]
-    fig, axs = plt.subplots(2, sharex=True)
-    axs[0].plot(korg_wl, data)
-    axs[0].plot(korg_wl, korg_total)
+    if ref_spec is None:
+        fig, axs = plt.subplots(2, sharex=True)
+        final_axs = 1
+    else:
+        fig, axs = plt.subplots(3, sharex=True)
+        final_axs = 2
+    if ref_spec is not None:
+        ref_data = ref_spec['data']
+        ref_synt = ref_spec['synt']
+        ref_wl = ref_spec['Wl']
+        axs[0].plot(ref_wl, ref_data, color='black', label='ref data', alpha=0.4)
+        axs[0].plot(ref_wl, ref_synt, color='orange', label='ref korg', alpha=0.4)
+        axs[1].plot(ref_wl, ref_data - ref_synt, color='black', label='ref residue', alpha=0.5)
+        axs[1].plot(korg_wl, data - korg_total, color='blue', label='epoch residue', alpha=0.5)
+        axs[1].set_ylim(-2, 2)
+        axs[1].legend()
+    axs[0].plot(korg_wl, data, color='blue', label="Data")
+    axs[0].plot(korg_wl, korg_total, color='red', label="Korg")
     axs[0].set_ylim(-0.1, 2)
-    axs[1].plot(korg_wl, korg_residue)
+    axs[0].legend()
+    axs[final_axs].plot(korg_wl, korg_residue)
     # mask = np.abs(korg_residue) > 6
     # spread_mask = mask.copy()
     # for shift in range(1, 2):
@@ -726,6 +750,8 @@ def plotting_spectra(neid_data, korg_data, filename, interactive=False):
     #     spread_mask[:-shift] |= mask[shift:]
     # axs[1].plot(korg_wl, korg_residue, 'ok')
     # axs[1].plot(korg_wl[spread_mask], korg_residue[spread_mask], 'ok')
+    # axs[final_axs].set_xlim(6275, 6315)
+    fig.suptitle("Residue")
     plt.show()
     # from make_telluricmask import get_mask_edges
     # start, ends = get_mask_edges(spread_mask, korg_wl)
