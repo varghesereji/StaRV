@@ -21,7 +21,7 @@ from utils import save_synt_data
 from utils import inject_vel_neidata
 
 from functools import partial
-
+import subprocess
 import pickle
 
 # from model_functions import residue_scale_factor
@@ -33,6 +33,8 @@ from model_functions import generate_full_korgspectra
 from model_functions import residue_profile
 from model_functions import residue_ccf
 from model_functions import reconstruct_params
+from model_functions import calculate_dotproduct_wrt_vel
+from model_functions import explore_param_space
 from scipy.optimize import differential_evolution
 
 from juliacall import Main as jl
@@ -40,14 +42,16 @@ jl.seval("using Korg")
 Korg = jl.Korg
 
 
-def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir'):
+def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
     print("Calling reference data")
     fname = reference_params['fname']
     fullpath = os.path.join(datadir, fname)
-    neid_data_dict = call_neiddata_full(fullpath, opdir, refspec=korg_data_ref)
+    neid_data_dict = call_neiddata_full(fullpath, opdir, refspec=korg_data_ref,
+                                        ref_velocity=dead_velocity)
     params = reference_params['params']
     # print("Reference", neid_data_dict)
-    param_pos = np.array(['r', 'r', 'r'])
+    # param_pos = np.array(['r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
+    param_pos = np.array(['r']) 
     residue_dict = residue_profile(neid_data=neid_data_dict,
                                    synt_spectra=None,
                                    area_fact=0.5,
@@ -85,6 +89,7 @@ def velprofile_fit_function(neid_filename, configfile,
     reference params: dict. {fname: Fname of reference file, params: Reference parameters}
     or {residue: reference residue, err: error of reference file, Wl: wavelength of reference residue}
     '''
+    pca = False
     if order == 'F':
         order = None
     else:
@@ -157,9 +162,9 @@ def velprofile_fit_function(neid_filename, configfile,
     result_files_list = ['fitted_params.pkl', 'Data_CCF.fits', 'Synt_CCF.fits']
     truth_list = np.array([os.path.isfile(os.path.join(resultdict, i)) for i in result_files_list])
     # print("Truth_list", truth_list)
-    # if np.sum(truth_list) == len(result_files_list):
-    #     #print("All required result files exist already")
-    #     sys.exit()
+    if np.sum(truth_list) == len(result_files_list):
+        print("All required result files exist already")
+        # sys.exit()
     if os.path.isfile(korg_data_name):
         print("The reference Korg data already exists. Calling that one")
         with open(korg_data_name, 'rb') as korgspec:
@@ -193,7 +198,7 @@ def velprofile_fit_function(neid_filename, configfile,
         elif profile == 'parabola':
             ref_res = None
     else:
-        ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'])
+        ref_res = None # make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
     for onefile in files_list:
         if onefile == "Korg":
             reference_file = "neidL2_20220514T172101.fits"
@@ -229,12 +234,43 @@ def velprofile_fit_function(neid_filename, configfile,
 
     # plot_fname = config['outputs']['SPEC_PRIFIX']
 
+    # dC shift fiting.
+    # param_pos = np.array(['v'])
+    # lower_bounds = [-np.inf]
+    # upper_bounds = [np.inf]
+    # init_params1 = [0]
+    # residue_vel_const = residue_profile(neid_data=neid_data_dict,
+    #                                     synt_spectra=None,
+    #                                     area_fact=0.5,
+    #                                     scale_fact=-1,
+    #                                     pca_comp=pca,
+    #                                     param_pos=param_pos,
+    #                                     profile=profile,
+    #                                     ip_data=ip_data,
+    #                                     ref_res=ref_res,
+    #                                     cache_dir=config['data_dir']['CACHE_DIR'],
+    #                                     algorithm=algorithm)
+    # result_init = least_squares(residue_vel_const,
+    #                             init_params1,
+    #                             bounds=(lower_bounds, upper_bounds),
+    #                             x_scale='jac',
+    #                             jac='3-point',
+    #                             verbose=2,
+    #                             xtol=None,
+    #                             gtol=None,
+    #                             method='trf',
+    #                             loss='linear',
+    #                             max_nfev=1000)
+    # print("Init result:", result_init)
+    # sys.exit()
+
+    
     # Initial conditions and bounds
     # init_params3 = [0.649, -1.287, -1.16, 0.03]
     # init_params3 = [-1,-1, 0, 0]
     # init_params3 = [-1, 0, 0]
     # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) # [0.22706784875, -1.3624070925, -1.36345988825, 1.13305506e-01]
-    init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
+    # init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
     # init_params3 = np.array([0, 0, 0])
     # init_params3 = [-1, 1]
     # init_params3 = [0.649, -1.287, -1.16, 0.03] # inits# [2, 2, 2, 2]
@@ -248,23 +284,26 @@ def velprofile_fit_function(neid_filename, configfile,
     param_pos = np.array(['r', 'r', 'r'])
     # param_pos = np.array(['p', 'p', 'p', 'p', 'v'])
     # param_pos = np.array(['p', 'p', 'v'])
-    pca = False
+
     # ref_res = None
     # profile = 'poly'
     if profile == 'poly':
         if pca:
-            init_params3 = np.array([0, 0, 0])
-            param_pos = np.array(['p', 'p', 'v'])
-            lower_bounds = [-np.inf, -np.inf, -np.inf]
-            upper_bounds = [np.inf, np.inf, np.inf]
+            init_params3 = np.array([0, 0, 0, 0])
+            # init_params3 = np.array([-1.29939303, -0.35665408,  0.03996642, -0.00286621])*2
+            param_pos = np.array(['p', 'p', 'p', 'v'])
+            lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf, np.inf, np.inf]
             bounds = np.array([lower_bounds,
                                upper_bounds]).T
         else:
             # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926])
-            init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
-            param_pos = np.array(['r', 'r', 'r'])
-            lower_bounds = [-np.inf, -np.inf, -np.inf]
-            upper_bounds = [np.inf, np.inf, np.inf]
+            init_params3 = np.array([-1.15276409477, 0])
+            # init_params3 = np.array([-1.14632229, -0.00297642])
+            # param_pos = np.array(['r', 'r', 'r'])
+            param_pos = np.array(['r', 'v'])
+            lower_bounds = [-np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf]
             bounds = np.array([lower_bounds,
                                upper_bounds]).T
 
@@ -296,13 +335,15 @@ def velprofile_fit_function(neid_filename, configfile,
                 if algorithm == 'ls':
                     result = least_squares(residue_vel, init_params3,
                                            bounds=(lower_bounds, upper_bounds),
-                                           x_scale='jac',
+                                           # x_scale='jac',
                                            jac='3-point',
                                            verbose=2,
                                            # ftol=None,
-                                           # ftol=1e-8,
-                                           xtol=None,
-                                           gtol=None,
+                                           ftol=1e-8,
+                                           xtol=1e-8,
+                                           gtol=1e-8,
+                                           # xtol=None,
+                                           # gtol=None,
                                            method='trf',
                                            loss='linear', # 'soft_l1',
                                            max_nfev=1000)
@@ -337,6 +378,28 @@ def velprofile_fit_function(neid_filename, configfile,
                 
             print(result)
 
+            print("Exploring param space")
+            explore_param_space(result, residue_vel, resultdict)
+            print("Calculating_derivative")
+            
+            result_fun = residue_profile(neid_data=neid_data_dict,
+                                         synt_spectra=None,
+                                         # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
+                                         area_fact=0.5,
+                                         scale_fact=-1,
+                                         pca_comp=False,
+                                         param_pos=param_pos,
+                                         profile='poly',
+                                         required='spectra',
+                                         ip_data=ip_data,
+                                         ref_res=ref_res,
+                                         cache_dir=config['data_dir']['CACHE_DIR'],
+                                         algorithm=algorithm)
+            # with open(os.path.join(resultdict, "least_squares_op.pkl"), 'rb') as res:
+            #     result = pickle.load(res)
+                
+            dot_product = calculate_dotproduct_wrt_vel(result, result_fun, resultdict)
+
             pca_array_result = result.x
             
             print("Fitted_params for third order", result.x)
@@ -345,15 +408,18 @@ def velprofile_fit_function(neid_filename, configfile,
             if pca:
                 pca_comps = pca_array_result[:-1]
                 profile_params = reconstruct_params(pca_comps)
+                profile_params = np.concatenate((profile_params, np.array([0])))
                 profile_params[-1] += additional_constant
             else:
                 profile_params = pca_array_result
             
             fitted_params3 = profile_params
             errorvals, cov_matrix = calculate_parameter_errors(result)
+
             resultdictionary = {'profile_params': fitted_params3,
                                 'pca_comps': pca_array_result,
                                 'params_err': errorvals,
+                                'dot_product': dot_product,
                                 'cov_matr': cov_matrix}
             save_dict_to_pickle(resultdictionary, result_filename)
             save_dict_to_pickle(result, os.path.join(resultdict,
@@ -363,7 +429,31 @@ def velprofile_fit_function(neid_filename, configfile,
             print("The result already exist. Calling it to plot")
             with open(result_filename, 'rb') as opfile:
                 fitted_params3 = pickle.load(opfile)['profile_params']
+
+            print("Making derivative")
+            with open(resultdict+"/least_squares_op.pkl", 'rb') as lsq_res:
+                lsq_resultdict = pickle.load(lsq_res)
+            result_fun = residue_profile(neid_data=neid_data_dict,
+                                         synt_spectra=None,
+                                         # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
+                                         area_fact=0.5,
+                                         scale_fact=-1,
+                                         pca_comp=False,
+                                         param_pos=np.array(['r','v']), # param_pos,
+                                         profile='poly',
+                                         required='spectra',
+                                         ip_data=ip_data,
+                                         ref_res=ref_res,
+                                         cache_dir=config['data_dir']['CACHE_DIR'],
+                                         algorithm=algorithm)
+            with open(os.path.join(resultdict, "least_squares_op.pkl"), 'rb') as res:
+                result = pickle.load(res)
+            # fitted_params3 = np.concatenate((fitted_params3
+            dot_product = calculate_dotproduct_wrt_vel(result, result_fun, resultdict)
+
+
         print("profile params", fitted_params3)
+        param_pos = np.array(['r', 'v'])
         save_synt_data(fitted_params3, fullpath, resultdict, save_interactive_plots=save_ip)
         print('resultdict', resultdict)
         print(os.path.dirname(fullpath))
@@ -380,7 +470,7 @@ def velprofile_fit_function(neid_filename, configfile,
                           # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                           area_fact=0.5,
                           scale_fact=-1,
-                          pca_comp=pca,
+                          pca_comp=False,
                           param_pos=param_pos,
                           profile='poly',
                           required='spectra',
@@ -389,6 +479,7 @@ def velprofile_fit_function(neid_filename, configfile,
                           cache_dir=config['data_dir']['CACHE_DIR'],
                           algorithm=algorithm)(fitted_params3)
         # generating residue for each order
+        save_dict_to_pickle(korg_spectra, "data/badregion_0.7.pkl")
         residue = korg_spectra['Res']
         residue_wl = korg_spectra['Wl']
         wl_orders = neid_data_dict['Wave']
@@ -402,11 +493,10 @@ def velprofile_fit_function(neid_filename, configfile,
         # # print(residue_dict)
         # save_dict_to_pickle(residue_dict, os.path.join(resultdict, "Order_residue.pkl"))
         from utils import plotting_spectra, plot_lines, plotting_jacobian
-        with open(os.path.join(resultdict, "least_squares_op.pkl"), 'rb') as res:
-            result = pickle.load(res)
         # plotting_jacobian(result, korg_spectra)
         plotting_spectra(neid_data_dict,
                          korg_spectra, resultdict+"/Fitted_spectra.pdf",
+                         ref_spec=ref_res,
                          interactive=save_ip)
         plot_lines(neid_data_dict,
                    korg_spectra, resultdict+"/Fitted_spectra_lines.pdf",
@@ -456,7 +546,10 @@ def velprofile_fit_function(neid_filename, configfile,
         plt.ylabel("Reduced chi2")
         plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
     print("====================== The End ===============================")
-
+    # print("Running Result")
+    # subprocess.run([sys.executable,
+    #                 "Result_analysis.py",
+    #                 str(dead_velocity)])
 # print("Arguements:", sys.argv)
 
 
@@ -533,7 +626,8 @@ else:
 # Print info
 # The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
 reference_params = {'fname': 'neidL2_20220402T173047.fits',
-                    'params': np.array([0.611103526365, -1.83331057909, -1.15276409477])
+                    'params': np.array([-1.15276409477])
+                    # 'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
                     # 'params': np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) 
                     # np.array([ 1.27868421, -2.51000317, -1.04019299,  0.11755702])# np.array([1.03364556, -2.04850628, -1.14747621,  0.11712102])  # np.array([-1.75375084, -0.72116282, 0.11853711])
                     # 'params': np.array([-1.75608548e+00, -2.96112277e-14, -7.20128987e-01,  1.18575833e-01])  # np.array([ 1.70357454, -1.92482808, -1.07396776,  0.04051153])

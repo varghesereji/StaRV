@@ -1,6 +1,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from multiprocessing import Pool
 import matplotlib as mpl
 import pickle
 import time
@@ -58,38 +59,28 @@ def shifted_legendre(n, x):
 
 
 def reconstruct_params(P):
-    # A = np.array([
-    #     [-8.006031661977676e-07, -1.0378344747491879e-06, 9.805592763351619e-07, 7.171758694512397e-07], # R2
-    #     [1.6770104905807818e-06, 1.1077466308961756e-06, 1.1793714415403254e-06, 1.8626309124317872e-06],
-    #     [0.0013778825825720646, -0.0009398767560125336, 0.0011710852824718455, -0.0014231068301804174],
-    #     [-0.0008899597805274083, 0.001310857825272971, 0.0012012345855433968, -0.0007389162324027525]
-    #     ])
-    # A = A[:, :-1]
-    # mu = np.array([
-    #     0.649372,
-    #     -1.28694,
-    #     -1.145622,
-    #     0.034520
-    #     ])
-    # mu = np.array([
-    #     0.6493721015974228,
-    #     -1.2869430126272885,
-    #     -1.1456216840921967,
-    #     0.03451986504011774,
-    # ])
-    A = np.array([[-0.032937977555381484, 0.024074427096568495],
-                 [0.031571960296695074, -0.013240645075579883],
-                 [-0.006694995026312799, 0.0014737690483261512],
-                 [0.00067386918102729, 0.0014417111589189976]])
-    mu = np.array([
-        0.7037505720667833,
-        -2.0015633043781254,
-        -1.14648246759313,
-        0.11264740019457169
-        ])
 
+    # A = np.array([[-0.032937977555381484, 0.024074427096568495],
+    #              [0.031571960296695074, -0.013240645075579883],
+    #              [-0.006694995026312799, 0.0014737690483261512],
+    #              [0.00067386918102729, 0.0014417111589189976]])
+    # mu = np.array([
+    #     0.7037505720667833,
+    #     -2.0015633043781254,
+    #     -1.14648246759313,
+    #     0.11264740019457169
+    #     ])
+    A = np.array([[-0.04287715757435157, 0.05372485611503212, 0.02930869611959398],
+                  [0.038819627859144924, 0.0015364590207488983, 0.05397474027581484], 
+                  [-0.0076783534791742625, -0.009284848285410607, 0.005786718230432543]])
+    mu = np.array([
+        0.6789978900546851,
+        -1.9016249932538416,
+        -1.138065025442601
+    ])
     P = np.atleast_2d(P)
     X = mu + P @ A.T
+    # print("in function", X, P @ A.T, mu)
     return X.squeeze()
 
 
@@ -265,8 +256,8 @@ def profile_penalty(params=None, param_pos=None, raise_params=None, fall_params=
         
     penalty_array = der_penalty * 100000 # 100000 # np.concatenate((prof_penalty, der_penalty)) * 1000000000
     if const_term is not None:
-        penalty_array = np.concatenate((penalty_array, np.abs(const_term) * 500))
-    print("Penalty: {}".format(penalty_array))
+        penalty_array = np.concatenate((penalty_array, np.abs(const_term) * 0))
+    # print("Penalty: {}".format(penalty_array))
     return penalty_array
     
 
@@ -288,6 +279,7 @@ def residue_profile(neid_data, synt_spectra=None,
                     required='residue',
                     ref_res=None,
                     ip_data='epoch',
+                    sigmacut=None,
                     cache_dir='/data/varghese/Stellar_activity_project_results/spectra_cache/',
                     algorithm='ls'):
     '''
@@ -311,8 +303,11 @@ def residue_profile(neid_data, synt_spectra=None,
     fall_mask = param_pos == 'f'
     add_shift_mask = param_pos == 'v' # This is the additional velocity for doppler shift the entire spectra
     pca_components_mask = param_pos == 'p'
+    lasso_comp = None
     scale_mask = param_pos == 'a'
-    
+    if np.size(param_pos) == 1:
+            pca_comp = False
+            
     # Extracting data
     neid_wl_array = dict_to_array(neid_data["Wave"])
     neid_flux_array = dict_to_array(neid_data["Flux"])
@@ -358,6 +353,7 @@ def residue_profile(neid_data, synt_spectra=None,
         print("==============================================")
         print("Params: {}".format(params))
         itertime_beg = time.time()
+
         if ref_params is not None:
             params = ref_params + params
             # Additional velocity
@@ -367,19 +363,25 @@ def residue_profile(neid_data, synt_spectra=None,
             add_vel = params[add_shift_mask]
 
         # Generating spectra
+        lasso_comp = None
         if pca_comp:
             pca_components = params[pca_components_mask]
+            lasso_comp = 0 * np.sqrt(np.abs(pca_components))
             print('pca_comps {}'.format(pca_components))
             fitting_params = reconstruct_params(pca_components)
-            raise_params = fitting_params[:-1]
+            raise_params = fitting_params# [:-1]
             # print("raise params in if", raise_params)
-            const_term = fitting_params[-1]
+            const_term = 0 # fitting_params[-1]
             # raise_params[-1] += const_term
             add_vel = add_vel + const_term
             const_term_penalty = add_vel
             # print('raise_params in cond', raise_params)
         else:
             raise_params = params[raise_mask]
+            if np.size(raise_params) == 0:
+                raise_params = np.array([0, 0, 0])
+            elif np.size(raise_params) == 1:
+                raise_params = np.array([0, 0, raise_params[0]])
             const_term_penalty = None
         # raise_params_added = np.insert(raise_params, 0, 0.66181421)
         print("raise_params {}".format(raise_params))
@@ -422,7 +424,7 @@ def residue_profile(neid_data, synt_spectra=None,
             print('fall params {}'.format(fall_params))
             filename_suffix = "_".join(map(str, raise_key))
             if pca_comp:
-                cache_filename = "Raise_Fall_pca_" + profile + "_" + filename_suffix + ".fits"
+                cache_filename = "Raise_Fall_pca1_" + profile + "_" + filename_suffix + ".fits"
             else:
                 cache_filename = "Raise_Fall_" + profile + "_" + filename_suffix + ".fits"
             cache_fullpath = os.path.join(cache_dir, cache_filename)
@@ -462,8 +464,11 @@ def residue_profile(neid_data, synt_spectra=None,
             raise_spectra = shifting_korg_flux(neid_wl_array, raise_spectra, profile_constant)
             fall_spectra = shifting_korg_flux(neid_wl_array, fall_spectra, -1*profile_constant)
             # print("Generating falling lane")
-            penalty = profile_penalty(raise_params=raise_params, fall_params=fall_params, const_term=None, # np.array([params[-1]]),
+            penalty = profile_penalty(raise_params=raise_params, fall_params=fall_params, const_term=np.array([params[-1]]),
                                       profile=profile)
+            if lasso_comp is not None:
+                penalty = np.concatenate((lasso_comp, penalty))
+                
             # params[-1])
             # params[-1])
             # if area_fact is None:
@@ -532,6 +537,11 @@ def residue_profile(neid_data, synt_spectra=None,
             current_residue = (neid_flux_array - synt_spectra)
             # residue = (current_residue - residue_0) / total_err
             telluricmask = neid_telluricmask == 0
+            if sigmacut is not None:
+                specdiff = neid_flux_array - flux0
+                ratio = specdiff / total_err
+                sigmamask = ratio > sigmacut
+                total_err[sigmamask] = total_err[sigmamask] * 10000
             total_err[telluricmask] = total_err[telluricmask] * 100000
             # plt.figure()
             # plt.plot(neid_wl_array, total_err)
@@ -559,6 +569,7 @@ def residue_profile(neid_data, synt_spectra=None,
         # print(f"removed {np.where(np.isnan(residue))}")
         nanmask = ~np.isnan(residue) & (neid_telluricmask == 1)
         residue_masked = residue# [nanmask]
+        print("Penalty: {}".format(penalty))
         residue = np.concatenate((residue_masked, penalty))
         cost = np.sum(residue**2)/2
         no_points = np.sum(neid_telluricmask == 1)
@@ -582,7 +593,7 @@ def residue_profile(neid_data, synt_spectra=None,
                             "Fall":fall_spectra,
                             "Total":synt_spectra,
                             "data":neid_flux_array,
-                            "Res":residue[:-1],
+                            "Res":residue[:-2],
                             "Res_noerr": residue_noerr,
                             "err": neid_err_array,
                             "r0": residue_0,
@@ -649,3 +660,99 @@ def calculate_parameter_errors(least_squares_result):
     param_errors = np.sqrt(np.diag(cov_matrix))
     
     return param_errors, cov_matrix
+
+
+def calculate_dotproduct_wrt_vel(lsq_res, residue_fun, resultdir):
+    x = lsq_res.x # lsq_res.x
+    # x = lsq_res
+    result_dict = residue_fun(x)
+    wavelength = result_dict['Wl']
+    korg_spectra = result_dict['Total']
+    step_size = 1e-6
+    shifted_flux_pos = shifting_korg_flux(wavelength, korg_spectra, step_size)
+    shifted_flux_neg = shifting_korg_flux(wavelength, korg_spectra, -1*step_size)
+    derivative = (shifted_flux_pos - shifted_flux_neg) / (2*step_size)
+    print("Calculated derivative of spectra")
+    print(derivative)
+    fig, axs = plt.subplots(np.size(x)+2, figsize=(16,16),sharex=True)
+    fig.subplots_adjust(hspace=0)
+    axs[0].plot(wavelength, korg_spectra)
+    axs[0].set_ylabel("F")
+    axs[1].plot(wavelength, derivative)
+    axs[1].set_ylabel(r"$\frac{dF}{dV}$", fontsize=16)
+
+    dot_products = []
+    for i in range(np.size(x)):
+        checking_param = x[i]
+        x_copy = x.copy()
+        print(x_copy)
+        param_pos = checking_param + step_size
+        x_copy[i] = param_pos
+        result_pos = residue_fun(x_copy)
+        spec_pos = result_pos['Total']
+        param_neg = checking_param - step_size
+        x_copy[i] = param_neg
+        result_neg = residue_fun(x_copy)
+        spec_neg = result_neg['Total']
+        spec_der = (spec_pos - spec_neg) / (2*step_size)
+        axs[i+2].plot(wavelength, spec_der)
+        if i == (np.size(x)-1):
+            axs[i+2].set_ylabel(r"$\frac{dF}{ddC}$", fontsize=16)
+        else:
+            axs[i+2].set_ylabel(rf'$\frac{{dF}}{{dP_{{{2-i}}}}}$', fontsize=16)
+
+        dot_product = np.sum(derivative * spec_der)
+        dot_products.append(dot_product)
+    print("dot products {}".format(dot_products))
+    plt.xlabel("Wavelength", fontsize=16)
+    plt.savefig(resultdir+"/Derivatives.pdf")
+    plt.show()
+    return np.array(dot_products)
+
+_result_fun = None
+
+def init_worker(result_fun):
+    global _result_fun
+    _result_fun = result_fun
+
+def process_r0(args):
+    r0, c_array = args
+    local_dict = {}
+
+    for c in c_array:
+        params = np.array([r0, c])
+        residue = np.sum(_result_fun(params)**2)
+        local_dict[(r0, c)] = residue
+    return local_dict
+
+def explore_param_space(result, result_fun, resultdict, nproc=50):
+    x = result.x
+    R0 = x[0]
+    C = x[1]
+    print(R0, C)
+    r0_array = np.arange(R0-0.01, R0+0.01, 0.001)
+    c_array = np.arange(C-0.01, C+0.01, 0.001)
+
+    with Pool(processes=nproc,
+              initializer=init_worker,
+              initargs=(result_fun,)) as pool:
+        results = pool.map(
+            process_r0,
+            [(r0, c_array) for r0 in r0_array]
+            )
+        
+    residue_dict = {}
+    for d in results:
+        residue_dict.update(d)
+    # for r0 in r0_array:
+    #     for c in c_array:
+    #         params = np.array([r0, c])
+    #         residue = np.sum(result_fun(params)**2)
+    #         params_key = (r0, c)
+
+    #         residue_dict[params_key] = residue
+    #         # print(residue_dict)
+    print("Saving residues")
+    with open(resultdict + "/residue_dict.pkl", 'wb') as resd:
+        pickle.dump(residue_dict, resd)
+    print("Residue dictionary saved")
