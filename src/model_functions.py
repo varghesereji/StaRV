@@ -305,6 +305,7 @@ def residue_profile(neid_data, synt_spectra=None,
     pca_components_mask = param_pos == 'p'
     lasso_comp = None
     scale_mask = param_pos == 'a'
+    # additional_refshift = param_pos == 'rs'
     if np.size(param_pos) == 1:
             pca_comp = False
             
@@ -507,6 +508,13 @@ def residue_profile(neid_data, synt_spectra=None,
             residue_0 = CubicSpline(ref_wl, ref_residue)(neid_wl_array)
             ref_flux = ref_res['data']
             ref_synt = ref_res['synt']
+            # print(additional_refshift)
+            additional_refshift = add_shift_mask
+            if np.sum(additional_refshift) > 0:
+                print(" additional shift", params[additional_refshift])
+                ref_flux = shifting_korg_flux(ref_wl, ref_flux, params[additional_refshift])
+                ref_synt = shifting_korg_flux(ref_wl, ref_synt, params[additional_refshift])
+                err_0 = shifting_korg_flux(ref_wl, ref_err, params[additional_refshift])
             flux0 = CubicSpline(ref_wl, ref_flux)(neid_wl_array)
             err_0 = CubicSpline(ref_wl, ref_err)(neid_wl_array)
             synt0 = CubicSpline(ref_wl, ref_synt)(neid_wl_array)
@@ -716,29 +724,30 @@ def init_worker(result_fun):
     _result_fun = result_fun
 
 def process_r0(args):
-    r0, c_array = args
+    r0, c_array, a_array = args
     local_dict = {}
-
-    for c in c_array:
-        params = np.array([r0, c])
-        residue = np.sum(_result_fun(params)**2)
-        local_dict[(r0, c)] = residue
+    for a in a_array:
+        for c in c_array:
+            params = np.array([r0, c, a])
+            residue = np.sum(_result_fun(params)**2)
+            local_dict[(r0, c)] = residue
     return local_dict
 
 def explore_param_space(result, result_fun, resultdict, nproc=50):
     x = result.x
     R0 = x[0]
     C = x[1]
-    print(R0, C)
+    add = x[2]
+    print(R0, C, add)
     r0_array = np.arange(R0-0.01, R0+0.01, 0.001)
     c_array = np.arange(C-0.01, C+0.01, 0.001)
-
+    add_array = np.arange(add-0.01, add+0.01, 0.005)
     with Pool(processes=nproc,
               initializer=init_worker,
               initargs=(result_fun,)) as pool:
         results = pool.map(
             process_r0,
-            [(r0, c_array) for r0 in r0_array]
+            [(r0, c_array, add_array) for r0 in r0_array]
             )
         
     residue_dict = {}
