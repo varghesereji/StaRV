@@ -476,12 +476,12 @@ def mask_creation(wavelengths):
         for row in reader:
             masking_region.append((float(row[0]), float(row[1])))
     # filename_bad = 'data/Bad_regions_mask.csv'
-    filename_bad = 'data/badregion_0.3.csv'
-    with open(filename_bad, newline='') as csvfile:
-        reader = csv.reader(csvfile)
-        next(reader)
-        for row in reader:
-            masking_region.append((float(row[0]), float(row[1])))
+    # filename_bad = 'data/badregion_0.3.csv'
+    # with open(filename_bad, newline='') as csvfile:
+    #     reader = csv.reader(csvfile)
+    #     next(reader)
+    #     for row in reader:
+    #         masking_region.append((float(row[0]), float(row[1])))
     filename_bad = 'data/Bad_regions_mask.csv'
     with open(filename_bad, newline='') as csvfile:
         reader = csv.reader(csvfile)
@@ -543,7 +543,7 @@ def save_synt_data(params, neid_fname, opdir, save_interactive_plots=False):
         print("Cost will look so high because here we are not continuum normalising or scaling to match with Korg spectra")
         synt_spectra = residue_profile(neid_data,
                                        # param_pos=np.array(['r', 'r', 'r', 'v']),
-                                       param_pos=np.array(['r', 'v']), # Remove this when use more parameters
+                                       param_pos=np.array(['r', 'r', 'r', 'v']), # Remove this when use more parameters
                                        scale_fact=-1,
                                        area_fact=0.5,
                                        contnorm=False,

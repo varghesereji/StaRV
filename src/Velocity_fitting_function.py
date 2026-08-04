@@ -11,6 +11,7 @@ import os
 from collections import defaultdict
 import shutil
 from concurrent.futures import ProcessPoolExecutor
+from astropy.io import fits
 
 from utils import calling_linelist
 # from utils import call_neid_data, call_neiddata_full
@@ -50,8 +51,8 @@ def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', op
                                         ref_velocity=dead_velocity)
     params = reference_params['params']
     # print("Reference", neid_data_dict)
-    # param_pos = np.array(['r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
-    param_pos = np.array(['r']) 
+    param_pos = np.array(['r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
+    # param_pos = np.array(['r']) 
     residue_dict = residue_profile(neid_data=neid_data_dict,
                                    synt_spectra=None,
                                    area_fact=0.5,
@@ -82,6 +83,7 @@ def velprofile_fit_function(neid_filename, configfile,
                             profile='poly',
                             algorithm='ls',
                             save_ip=False,
+                            planet=None,
                             reference_params=None,
                             inits=[0.0, 0.0, 0.0, 0.0]):
     '''
@@ -119,8 +121,14 @@ def velprofile_fit_function(neid_filename, configfile,
     if basename == 'Korg':
         resultsubdir_prefix += "_{}_snr{}_".format(round(dead_velocity, 7),
                                                    snr)
-    if abs(dead_velocity) != 0:
+    print("Planet", planet)
+    if abs(dead_velocity) != 0 and planet is None:
         master_subdir += "_{}".format(round(dead_velocity, 7))
+    elif planet is not None:
+        P = planet[0]
+        K = planet[1]
+        master_subdir += "_K{}_P{}".format(K, P)
+        
     resultdict = os.path.join(srcdir, master_resdir, master_subdir,
                               resultsubdir_prefix + basename + "_{}-{}".format(
                                   wlwinds[0], wlwinds[1]))
@@ -154,7 +162,7 @@ def velprofile_fit_function(neid_filename, configfile,
     if logfilesave == 'T':
         sys.stdout = StreamToLogger(logging.getLogger(), logging.INFO)
         sys.stderr = StreamToLogger(logging.getLogger(), logging.ERROR)
-
+    
     result_filename = os.path.join(resultdict, "fitted_params.pkl")
 
     maindir = config['data_dir']['NEID_DIR']
@@ -164,7 +172,7 @@ def velprofile_fit_function(neid_filename, configfile,
     # print("Truth_list", truth_list)
     if np.sum(truth_list) == len(result_files_list):
         print("All required result files exist already")
-        # sys.exit()
+        sys.exit()
     if os.path.isfile(korg_data_name):
         print("The reference Korg data already exists. Calling that one")
         with open(korg_data_name, 'rb') as korgspec:
@@ -198,7 +206,7 @@ def velprofile_fit_function(neid_filename, configfile,
         elif profile == 'parabola':
             ref_res = None
     else:
-        ref_res = None # make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
+        ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
     for onefile in files_list:
         if onefile == "Korg":
             reference_file = "neidL2_20220514T172101.fits"
@@ -212,6 +220,13 @@ def velprofile_fit_function(neid_filename, configfile,
             shutil.copy(fullpath, resultdict)
             print(fullpath, "copied to", resultdict)
             fullpath = os.path.join(resultdict, neid_filename)
+            if planet is not None:
+                bjd = fits.getheader(fullpath, ext=12)['CCFJDMOD']
+                P = float(planet[0]) # days
+                K = float(planet[1]) # km/s
+                omega = 2*np.pi/P
+                dead_velocity = K * np.sin(omega * bjd)
+            
             inject_vel_neidata(fullpath, dead_velocity)
             dead_velocity = 0
             print("Using the file", fullpath)
@@ -298,12 +313,12 @@ def velprofile_fit_function(neid_filename, configfile,
                                upper_bounds]).T
         else:
             # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926])
-            init_params3 = np.array([-1.15276409477, 0])
+            init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477, 0])
             # init_params3 = np.array([-1.14632229, -0.00297642])
             # param_pos = np.array(['r', 'r', 'r'])
-            param_pos = np.array(['r', 'v'])
-            lower_bounds = [-np.inf, -np.inf]
-            upper_bounds = [np.inf, np.inf]
+            param_pos = np.array(['r', 'r', 'r', 'v'])
+            lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
+            upper_bounds = [np.inf, np.inf, np.inf, np.inf]
             bounds = np.array([lower_bounds,
                                upper_bounds]).T
 
@@ -378,8 +393,8 @@ def velprofile_fit_function(neid_filename, configfile,
                 
             print(result)
 
-            print("Exploring param space")
-            explore_param_space(result, residue_vel, resultdict)
+            print("Not Exploring param space")
+            # explore_param_space(result, residue_vel, resultdict)
             print("Calculating_derivative")
             
             result_fun = residue_profile(neid_data=neid_data_dict,
@@ -429,7 +444,7 @@ def velprofile_fit_function(neid_filename, configfile,
             print("The result already exist. Calling it to plot")
             with open(result_filename, 'rb') as opfile:
                 fitted_params3 = pickle.load(opfile)['profile_params']
-
+            '''
             print("Making derivative")
             with open(resultdict+"/least_squares_op.pkl", 'rb') as lsq_res:
                 lsq_resultdict = pickle.load(lsq_res)
@@ -450,10 +465,10 @@ def velprofile_fit_function(neid_filename, configfile,
                 result = pickle.load(res)
             # fitted_params3 = np.concatenate((fitted_params3
             dot_product = calculate_dotproduct_wrt_vel(result, result_fun, resultdict)
-
+            '''
 
         print("profile params", fitted_params3)
-        param_pos = np.array(['r', 'v'])
+        param_pos = np.array(['r', 'r', 'r', 'v'])
         save_synt_data(fitted_params3, fullpath, resultdict, save_interactive_plots=save_ip)
         print('resultdict', resultdict)
         print(os.path.dirname(fullpath))
@@ -580,6 +595,9 @@ parser.add_argument('--init', type=float,
 # --dead_vel
 parser.add_argument('--dead_vel', type=float,
                     default=0.0, help='Dead velocity')
+parser.add_argument('--planet', type=float,
+                    default=None, help='Planet parametes such as period and amplitude [P, K]',
+                    nargs="+")
 
 parser.add_argument('--purpose', type=str,
                     default='minimize', help='Purpose. (minimize, chi2, both)')
@@ -626,8 +644,8 @@ else:
 # Print info
 # The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
 reference_params = {'fname': 'neidL2_20220402T173047.fits',
-                    'params': np.array([-1.15276409477])
-                    # 'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
+                    # 'params': np.array([-1.15276409477])
+                    'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
                     # 'params': np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) 
                     # np.array([ 1.27868421, -2.51000317, -1.04019299,  0.11755702])# np.array([1.03364556, -2.04850628, -1.14747621,  0.11712102])  # np.array([-1.75375084, -0.72116282, 0.11853711])
                     # 'params': np.array([-1.75608548e+00, -2.96112277e-14, -7.20128987e-01,  1.18575833e-01])  # np.array([ 1.70357454, -1.92482808, -1.07396776,  0.04051153])
@@ -676,6 +694,7 @@ except ValueError:
             purpose=args.purpose,
             profile=args.profile,
             fitting=args.fitting,
+            planet=args.planet,
             save_ip=save_ip,
             inits=args.init,
             reference_params=reference_params
