@@ -1,8 +1,10 @@
 import os
+import sys
 import threading
 import subprocess
 import configparser
 import numpy as np
+from astropy.io import fits
 from pathlib import Path
 from collections import defaultdict
 import re
@@ -42,8 +44,13 @@ for date, time in grouped_data.items():
         for i in data_dir.glob(regexp):
             selected_epoches.append(i.name)
 
-print(grouped_data)
-print(selected_epoches)
+# print(grouped_data)
+# print('selected_epoches', selected_epoches)
+# bjd_list = []
+# for epoch in selected_epoches:
+#     fname =  data_dir / epoch
+#     bjd = fits.getheader(fname, ext=12)['CCFJDMOD']
+#     bjd_list.append(bjd)
 execute_list = []
 vels_array = np.array([
     # -0.00020,
@@ -84,19 +91,38 @@ vels_array = np.array([
 inits_vals = np.ones(12).reshape(3, 4)
 inits_vals[0] *= -1
 inits_vals[1] *= 0
-
+P = 2 # days
+K = 0.01 # km/s
 inits = inits_vals[1]
-for data in selected_epoches:
-    # vels = 0 # -0.20002
+periods = [
+    3,
+    5,
+    7,
+    10,
+    15,
+    20,
+    30
+]
+amplitudes = [
+    0.01,
+    0.001,
+    0.0001,
+    0.0005,
+    0.005
+]
+for P in periods:
+    for K in amplitudes:
+        for data in selected_epoches:
+            # vels = 0 # -0.20002
 
-    for vels in vels_array:
-            print(data, vels)
-            # for inits in inits_vals:
-              #  print(inits)
-            init_str = " ".join(map(str, inits))
-            command = "taskset -c 10-79 python Velocity_fitting_function.py --fname {} --dead_vel={}".format(data, round(vels, 8))
-            execute_list.append(command)
-
+            for vels in vels_array:
+                    print(data, vels)
+                    # for inits in inits_vals:
+                      #  print(inits)
+                    init_str = " ".join(map(str, inits))
+                    command = "taskset -c 10-79 python Velocity_fitting_function.py --fname {} --dead_vel={} --planet {} {}".format(data, round(vels, 8), P, K)
+                    execute_list.append(command)
+# sys.exit()
 # Running for each order
 # for data in selected_epoches[:10]:
 #     # vels = 0 # -0.20002
