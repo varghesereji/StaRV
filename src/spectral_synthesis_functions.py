@@ -1,7 +1,7 @@
 import numpy as np
 import time
 
-from PyAstronomy import pyasl
+
 
 import juliapkg
 from juliacall import Main as jl
@@ -96,7 +96,7 @@ def generate_with_korg(velocity, wl_wind=None, stellar_params=None, spectral_par
                           I_scheme="linear_flux_only",
                           velocity_profile=velocity)
     t2 = time.time()
-    print("Time taken for synthesise:", t2-t1)
+    print("Time taken for synthesise: {}".format(t2-t1))
     
     # flux, wl, cont = jl.synth_fast(
     #     atm, LINES, AX_SOLAR, wlmin, wlmax, velocity
