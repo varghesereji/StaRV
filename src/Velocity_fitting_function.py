@@ -251,55 +251,12 @@ def velprofile_fit_function(neid_filename, configfile,
     # plot_fname = config['outputs']['SPEC_PRIFIX']
 
     # dC shift fiting.
-    # param_pos = np.array(['v'])
-    # lower_bounds = [-np.inf]
-    # upper_bounds = [np.inf]
-    # init_params1 = [0]
-    # residue_vel_const = residue_profile(neid_data=neid_data_dict,
-    #                                     synt_spectra=None,
-    #                                     area_fact=0.5,
-    #                                     scale_fact=-1,
-    #                                     pca_comp=pca,
-    #                                     param_pos=param_pos,
-    #                                     profile=profile,
-    #                                     ip_data=ip_data,
-    #                                     ref_res=ref_res,
-    #                                     cache_dir=config['data_dir']['CACHE_DIR'],
-    #                                     algorithm=algorithm)
-    # result_init = least_squares(residue_vel_const,
-    #                             init_params1,
-    #                             bounds=(lower_bounds, upper_bounds),
-    #                             x_scale='jac',
-    #                             jac='3-point',
-    #                             verbose=2,
-    #                             xtol=None,
-    #                             gtol=None,
-    #                             method='trf',
-    #                             loss='linear',
-    #                             max_nfev=1000)
-    # print("Init result:", result_init)
-    # sys.exit()
-
-    
-    # Initial conditions and bounds
-    # init_params3 = [0.649, -1.287, -1.16, 0.03]
-    # init_params3 = [-1,-1, 0, 0]
-    # init_params3 = [-1, 0, 0]
-    # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) # [0.22706784875, -1.3624070925, -1.36345988825, 1.13305506e-01]
-    # init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477])
-    # init_params3 = np.array([0, 0, 0])
-    # init_params3 = [-1, 1]
-    # init_params3 = [0.649, -1.287, -1.16, 0.03] # inits# [2, 2, 2, 2]
     lower_bounds = [-np.inf, -np.inf, -np.inf]# -5]#, -1]
     upper_bounds = [np.inf, np.inf, np.inf] #1]#]
-    # lower_bounds = [-np.inf, -np.inf, -np.inf]# -5]#, -1]
-    # upper_bounds = [, np.inf, np.inf] #1]#]
 
     bounds = np.array([lower_bounds, upper_bounds]).T
     # param_pos = np.array(['r', 'r', 'r', 'v'])
     param_pos = np.array(['r', 'r', 'r'])
-    # param_pos = np.array(['p', 'p', 'p', 'p', 'v'])
-    # param_pos = np.array(['p', 'p', 'v'])
 
     # ref_res = None
     # profile = 'poly'
