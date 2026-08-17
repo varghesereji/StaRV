@@ -202,6 +202,7 @@ def velprofile_fit_function(neid_filename, configfile,
     # Making Reference residue
     if reference_params['fname'] == neid_filename:
         if profile == 'poly':
+            print("Reference file should fit for parabola")
             sys.exit()
         elif profile == 'parabola':
             ref_res = None
@@ -437,8 +438,8 @@ def velprofile_fit_function(neid_filename, configfile,
                                 'dot_product': dot_product,
                                 'cov_matr': cov_matrix}
             save_dict_to_pickle(resultdictionary, result_filename)
-            save_dict_to_pickle(result, os.path.join(resultdict,
-                                                     "least_squares_op.pkl"))
+            # save_dict_to_pickle(result, os.path.join(resultdict,
+            #                                          "least_squares_op.pkl"))
             
         else:
             print("The result already exist. Calling it to plot")
@@ -568,163 +569,149 @@ def velprofile_fit_function(neid_filename, configfile,
 # print("Arguements:", sys.argv)
 
 
-parser = argparse.ArgumentParser(description="Run velprofile fitting.")
-ref_fname = "neidL2_20220402T173047.fits"
-# Required positional argument
-parser.add_argument('--fname', type=str,
-                    default=ref_fname, help='Input file name')
+def read_args():
+    parser = argparse.ArgumentParser(description="Run velprofile fitting.")
+    ref_fname = "neidL2_20201212T172936.fits"
+    # Required positional argument
+    parser.add_argument('--fname', type=str,
+                        default=ref_fname, help='Input file name')
 
-# Config file
-parser.add_argument('--config', type=str,
-                    default='Spectral_fitting.config', help='Config file name')
-# --WL takes 2 values
-
-
-# --SNR is optional here, but we will enforce it manually later
-# if fname=="Korg"
-parser.add_argument('--SNR', type=float,
-                    help='Signal-to-noise ratio (only needed if fname is Korg)')
-
-parser.add_argument('--LOG', type=str,
-                    help='F to display the outputs.', default='T')
-parser.add_argument('--init', type=float,
-                    default=[0.0, 0.0, 0.0, 0.0],
-                    nargs="+",
-                    help="Initial conditions")
-
-# --dead_vel
-parser.add_argument('--dead_vel', type=float,
-                    default=0.0, help='Dead velocity')
-parser.add_argument('--planet', type=float,
-                    default=None, help='Planet parametes such as period and amplitude [P, K]',
-                    nargs="+")
-
-parser.add_argument('--purpose', type=str,
-                    default='minimize', help='Purpose. (minimize, chi2, both)')
-parser.add_argument('--fitting', type=str,
-                    default='spectra',
-                    help="Fitting for: (spectra, ccf)")
-parser.add_argument('--ip_data', type=str,
-                    default='epoch', help='epoch, combined')
-parser.add_argument('--save_ip', type=str,
-                    default='F', help='Save interactive plot (T, F)')
-parser.add_argument('--orders', type=str,
-                    default='F', help='Do for each order (T, F)')
-parser.add_argument('--profile', type=str,
-                    default='poly', help="Profile type, (poly, parabola)")
-
-# Parse args
-args = parser.parse_args()
-# print(args)
-# Unpack WL window
-# wl_wind1, wl_wind2 = args.WL
-
-# print(config['data_dir']['NEID_DIR'])
+    # Config file
+    parser.add_argument('--config', type=str,
+                        default='Spectral_fitting.config', help='Config file name')
+    # --WL takes 2 values
 
 
-# Check if SNR is needed
-if args.fname == "Korg" and args.SNR is None:
-    print("Error: --SNR must be provided when fname is 'Korg'.")
-    sys.exit(1)
+    # --SNR is optional here, but we will enforce it manually later
+    # if fname=="Korg"
+    parser.add_argument('--SNR', type=float,
+                        help='Signal-to-noise ratio (only needed if fname is Korg)')
 
-# Either use given SNR or a dummy value if not provided
-# (only for non-Korg cases)
-snr_value = args.SNR if args.SNR is not None else 500
-# You can also choose not to pass it eat all if not needed
+    parser.add_argument('--LOG', type=str,
+                        help='F to display the outputs.', default='T')
+    parser.add_argument('--init', type=float,
+                        default=[0.0, 0.0, 0.0, 0.0],
+                        nargs="+",
+                        help="Initial conditions")
 
-ip = args.save_ip
-# print("ip", ip)
+    # --dead_vel
+    parser.add_argument('--dead_vel', type=float,
+                        default=0.0, help='Dead velocity')
+    parser.add_argument('--planet', type=float,
+                        default=None, help='Planet parametes such as period and amplitude [P, K]',
+                        nargs="+")
 
-if ip == "T" or args.fname == ref_fname:
-    save_ip = False # True
-else:
-    save_ip = False
+    parser.add_argument('--purpose', type=str,
+                        default='minimize', help='Purpose. (minimize, chi2, both)')
+    parser.add_argument('--fitting', type=str,
+                        default='spectra',
+                        help="Fitting for: (spectra, ccf)")
+    parser.add_argument('--ip_data', type=str,
+                        default='epoch', help='epoch, combined')
+    parser.add_argument('--save_ip', type=str,
+                        default='F', help='Save interactive plot (T, F)')
+    parser.add_argument('--orders', type=str,
+                        default='F', help='Do for each order (T, F)')
+    parser.add_argument('--profile', type=str,
+                        default='poly', help="Profile type, (poly, parabola)")
 
+    return parser
 
-# Print info
-# The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
-reference_params = {'fname': 'neidL2_20220402T173047.fits',
-                    # 'params': np.array([-1.15276409477])
-                    'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
-                    # 'params': np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926, 0.11535105]) 
-                    # np.array([ 1.27868421, -2.51000317, -1.04019299,  0.11755702])# np.array([1.03364556, -2.04850628, -1.14747621,  0.11712102])  # np.array([-1.75375084, -0.72116282, 0.11853711])
-                    # 'params': np.array([-1.75608548e+00, -2.96112277e-14, -7.20128987e-01,  1.18575833e-01])  # np.array([ 1.70357454, -1.92482808, -1.07396776,  0.04051153])
-                    # 'params': np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628])
-                    }
-print("Doing for:", args.fname)
-print("Order:", args.orders)
-# print(f"Wavelength window: {wl_wind1} - {wl_wind2}")
-print(f"Dead velocity: {args.dead_vel}")
-if args.fname == "Korg":
-    print(f"SNR: {args.SNR}")
-print(args.LOG)
-def process_order(order):
-    velprofile_fit_function(
-        args.fname,
-        args.config,
-        dead_velocity=args.dead_vel,
-        snr=snr_value,
-        logfilesave=args.LOG,
-        profile=args.profile,
-        purpose=args.purpose,
-        fitting=args.fitting,
-        save_ip=save_ip,
-        inits=args.init,
-        order=order,
-        reference_params=reference_params
-    )
+def main():
+    ref_fname = "neidL2_20201212T172936.fits"
+    # Parse args
+    parser = read_args()
+    args = parser.parse_args()
+    # print(args)
+    # Unpack WL window
+    # wl_wind1, wl_wind2 = args.WL
+
+    # print(config['data_dir']['NEID_DIR'])
 
 
-# Call your function
-try:
-    order = int(args.orders)
-    if (order > 70) & (order < 162):
-        process_order(order)
+    # Check if SNR is needed
+    if args.fname == "Korg" and args.SNR is None:
+        print("Error: --SNR must be provided when fname is 'Korg'.")
+        sys.exit(1)
+
+    # Either use given SNR or a dummy value if not provided
+    # (only for non-Korg cases)
+    snr_value = args.SNR if args.SNR is not None else 500
+    # You can also choose not to pass it eat all if not needed
+
+    ip = args.save_ip
+    # print("ip", ip)
+
+    if ip == "T" or args.fname == ref_fname:
+        save_ip = False # True
     else:
-        print("Please enter orders between 71 and 161")
-        sys.exit()
-except ValueError:
-    if args.orders == 'F':
+        save_ip = False
+
+
+    # Print info
+    # The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
+    reference_params = {'fname': 'neidL2_20201212T172936.fits',
+                        'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
+                        }
+    print("Doing for:", args.fname)
+    print("Order:", args.orders)
+    # print(f"Wavelength window: {wl_wind1} - {wl_wind2}")
+    print(f"Dead velocity: {args.dead_vel}")
+    if args.fname == "Korg":
+        print(f"SNR: {args.SNR}")
+    print(args.LOG)
+    def process_order(order):
         velprofile_fit_function(
             args.fname,
             args.config,
             dead_velocity=args.dead_vel,
-            snr=snr_value,  # Only needed for Korg, but passing anyway
+            snr=snr_value,
             logfilesave=args.LOG,
-            purpose=args.purpose,
             profile=args.profile,
+            purpose=args.purpose,
             fitting=args.fitting,
-            planet=args.planet,
             save_ip=save_ip,
             inits=args.init,
+            order=order,
             reference_params=reference_params
         )
-    elif args.orders == 'T':
-        # num_cores = 1
-        # orders = [173 - i for i in range(121) if 70 <= (173 - i) <= 162]
-        # with ProcessPoolExecutor(max_workers=num_cores) as executor:
-        #     executor.map(process_order, orders)
-        for i in range(121):
-            if ((173-i) < 70) or ((173-i) > 162):
-                continue
-            order = 173-i
+
+
+    # Call your function
+    try:
+        order = int(args.orders)
+        if (order > 70) & (order < 162):
             process_order(order)
-      #       velprofile_fit_function(
-    #             args.fname,
-    #             args.config,
-    #             dead_velocity=args.dead_vel,
-    #             snr=snr_value,  # Only needed for Korg, but passing anyway
-    #             logfilesave=args.LOG,
-    #             purpose=args.purpose,
-    #             fitting=args.fitting,
-    #             save_ip=save_ip,
-    #             inits=args.init,
-    #             order=order
-    #         )
-    # # 
-    # elif isinstance(args.orders, int)
+        else:
+            print("Please enter orders between 71 and 161")
+            sys.exit()
+    except ValueError:
+        if args.orders == 'F':
+            velprofile_fit_function(
+                args.fname,
+                args.config,
+                dead_velocity=args.dead_vel,
+                snr=snr_value,  # Only needed for Korg, but passing anyway
+                logfilesave=args.LOG,
+                purpose=args.purpose,
+                profile=args.profile,
+                fitting=args.fitting,
+                planet=args.planet,
+                save_ip=save_ip,
+                inits=args.init,
+                reference_params=reference_params
+            )
+        elif args.orders == 'T':
+            for i in range(121):
+                if ((173-i) < 70) or ((173-i) > 162):
+                    continue
+                order = 173-i
+                process_order(order)
 
 
-print('\a')
+    print('\a')
+
+if __name__ == "__main__":
+    main()
 
 # End of code
