@@ -43,10 +43,10 @@ jl.seval("using Korg")
 Korg = jl.Korg
 
 
-def expand_parabols(parabola_params,
+def expand_parabolas(parabola_params,
                     about=0.5
                     ):
-    A, D, C = parabola_params
+    A, D = parabola_params
 
     R2 = A / (-8 * about ** (3/2))
     R1 = 3 * A / (4 * np.sqrt(about))
@@ -85,6 +85,7 @@ def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', op
     with open(os.path.join('data', "Reference_residue.pkl"), 'wb') as res:
         pickle.dump(ref_res, res)
     return ref_res
+
 
 def velprofile_fit_function(neid_filename, configfile,
                             save_generated_syntspectra=False, dead_velocity=0,
@@ -212,14 +213,26 @@ def velprofile_fit_function(neid_filename, configfile,
         files_list = [neid_filename]
 
     # Making Reference residue
+    reference_trial = False
+
     if reference_params['fname'] == neid_filename:
         if profile == 'poly':
             print("Reference file should fit for parabola")
             sys.exit()
         elif profile == 'parabola':
+            print("This trial to make parameters for reference data")
+            reference_trial = True
             ref_res = None
     else:
+        ref_param_file = config['reference']['REFERENCE_RESULT']
+        with open(ref_param_file, "rb") as ref:
+            ref_parabola = pickle.load(ref)
+        ref_parabola_params = ref_parabola['params']
+        R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params)
+        print("Parabola parameters expanded to", R2_ref, R1_ref, R0_ref)
+        reference_params['params'] = np.array([R2_ref, R1_ref, R0_ref])
         ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
+
     for onefile in files_list:
         if onefile == "Korg":
             reference_file = "neidL2_20220514T172101.fits"
@@ -438,6 +451,16 @@ def velprofile_fit_function(neid_filename, configfile,
             '''
 
         print("profile params", fitted_params3)
+        if reference_trial:
+            expanded_params = expand_parabolas(fitted_params3)
+            print("Parabola will be expanded as:", expanded_params)
+            ref_profile_params = {'params': fitted_params3}
+            reference_save_as = config['reference']['REFERENCE_RESULT']
+            print("Reference file will be saved as:", reference_save_as)
+            save_dict_to_pickle(ref_profile_params, reference_save_as)
+            print("No further process because this is for reference")
+            return
+
         param_pos = np.array(['r', 'r', 'r', 'v'])
         save_synt_data(fitted_params3, fullpath, resultdict, save_interactive_plots=save_ip)
         print('resultdict', resultdict)
