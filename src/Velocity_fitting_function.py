@@ -145,6 +145,11 @@ def velprofile_fit_function(neid_filename, configfile,
     resultdict = os.path.join(srcdir, master_resdir, master_subdir,
                               resultsubdir_prefix + basename + "_{}-{}".format(
                                   wlwinds[0], wlwinds[1]))
+
+    # Reference
+    if reference_params['fname'] == 'config':
+        reference_params['fname'] = config['reference']['REFERENCEFILE']
+    
     if order is not None:
         resultdict = os.path.join(resultdict, "Order_{}".format(order))
     # print(fullpath)
@@ -296,9 +301,13 @@ def velprofile_fit_function(neid_filename, configfile,
                                upper_bounds]).T
         else:
             # init_params3 = np.array([0.6465122343090566, -1.9395367029271697, -1.1611245657317926])
-            init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477, 0])
+            # init_params3 = np.array([0.611103526365, -1.83331057909, -1.15276409477, 0])
             # init_params3 = np.array([-1.14632229, -0.00297642])
             # param_pos = np.array(['r', 'r', 'r'])
+            ref_params = reference_params['params']
+            init_params3 = np.concatenate((ref_params,
+                                           np.array([0])))
+
             param_pos = np.array(['r', 'r', 'r', 'v'])
             lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
             upper_bounds = [np.inf, np.inf, np.inf, np.inf]
@@ -502,10 +511,14 @@ def velprofile_fit_function(neid_filename, configfile,
         # save_dict_to_pickle(residue_dict, os.path.join(resultdict, "Order_residue.pkl"))
         from utils import plotting_spectra, plot_lines, plotting_jacobian
         # plotting_jacobian(result, korg_spectra)
-        plotting_spectra(neid_data_dict,
-                         korg_spectra, resultdict+"/Fitted_spectra.pdf",
-                         ref_spec=ref_res,
-                         interactive=save_ip)
+
+        # Process to plot the fitted spectra
+        # Uncomment this if you want plot
+
+        # plotting_spectra(neid_data_dict,
+        #                  korg_spectra, resultdict+"/Fitted_spectra.pdf",
+        #                  ref_spec=ref_res,
+        #                  interactive=save_ip)
         plot_lines(neid_data_dict,
                    korg_spectra, resultdict+"/Fitted_spectra_lines.pdf",
                    mask_filename='data/Sample_lines.csv') # Deep_lines.csv')
@@ -561,7 +574,7 @@ def velprofile_fit_function(neid_filename, configfile,
 # print("Arguements:", sys.argv)
 
 
-def read_args():
+def read_args(raw_args=None):
     parser = argparse.ArgumentParser(description="Run velprofile fitting.")
     ref_fname = "neidL2_20201212T172936.fits"
     # Required positional argument
@@ -606,13 +619,17 @@ def read_args():
                         default='F', help='Do for each order (T, F)')
     parser.add_argument('--profile', type=str,
                         default='poly', help="Profile type, (poly, parabola)")
+    parser.add_argument('--ref', type=str,
+                        default='config', help="Profile type, (poly, parabola)")
 
-    return parser
+    args = parser.parse_args(raw_args)
+    return args
 
-def main():
-    ref_fname = "neidL2_20201212T172936.fits"
+def main(raw_args=None):
+    # ref_fname = "neidL2_20201212T172936.fits"
+
     # Parse args
-    parser = read_args()
+    parser = read_args(raw_args)
     args = parser.parse_args()
     # print(args)
     # Unpack WL window
@@ -634,16 +651,16 @@ def main():
     ip = args.save_ip
     # print("ip", ip)
 
-    if ip == "T" or args.fname == ref_fname:
+    if ip == "T" or args.fname == args.ref:
         save_ip = False # True
     else:
         save_ip = False
+    
 
-
+    ref_fname = args.ref
     # Print info
     # The reference parameters are calculated by taylor expansion of parabolic profile done for reference spectra.
-    reference_params = {'fname': 'neidL2_20201212T172936.fits',
-                        'params': np.array([0.611103526365, -1.83331057909, -1.15276409477]) # This one was for 2 degree polynomial
+    reference_params = {'fname': ref_fname,
                         }
     print("Doing for:", args.fname)
     print("Order:", args.orders)
