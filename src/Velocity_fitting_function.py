@@ -43,6 +43,18 @@ jl.seval("using Korg")
 Korg = jl.Korg
 
 
+def expand_parabols(parabola_params,
+                    about=0.5
+                    ):
+    A, D, C = parabola_params
+
+    R2 = A / (-8 * about ** (3/2))
+    R1 = 3 * A / (4 * np.sqrt(about))
+    R0 = 3 * A * np.sqrt(about) / 8 + D
+
+    return R2, R1, R0
+
+
 def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
     print("Calling reference data")
     fname = reference_params['fname']
