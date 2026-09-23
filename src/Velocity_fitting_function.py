@@ -56,9 +56,10 @@ def expand_parabolas(parabola_params,
 
 
 def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
-    print("Calling reference data")
+
     fname = reference_params['fname']
-    fullpath = os.path.join(datadir, fname)
+    print(f"Calling reference data {fname}")
+    fullpath = fname # os.path.join(datadir, fname)
     neid_data_dict = call_neiddata_full(fullpath, opdir, refspec=korg_data_ref,
                                         ref_velocity=dead_velocity)
     params = reference_params['params']
@@ -98,6 +99,7 @@ def velprofile_fit_function(neid_filename, configfile,
                             save_ip=False,
                             planet=None,
                             reference_params=None,
+                            special_subdir=None,
                             inits=[0.0, 0.0, 0.0, 0.0]):
     '''
     algorithm: ls for least squares, diff for differential evaluation
@@ -138,11 +140,20 @@ def velprofile_fit_function(neid_filename, configfile,
     if abs(dead_velocity) != 0 and planet is None:
         master_subdir += "_{}".format(round(dead_velocity, 7))
     elif planet is not None:
-        P = planet[0]
-        K = planet[1]
-        master_subdir += "_K{}_P{}".format(K, P)
+        P = planet[:-1]
+        K = planet[-1]
+        if len(P) == 0:
+            master_subdir += "_K{}_P{}".format(K, P)
+        else:
+            master_subdir += "_K{}_P{}".format(K, "_".join(map(str, P)))
+
+    allresults_in = os.path.join(srcdir, master_resdir, master_subdir)
+    # special_subdir = neid_filename.strip().split("_")[1][:4]
+
+    if special_subdir is not None:
+        allresults_in = os.path.join(allresults_in, special_subdir)
         
-    resultdict = os.path.join(srcdir, master_resdir, master_subdir,
+    resultdict = os.path.join(allresults_in,
                               resultsubdir_prefix + basename + "_{}-{}".format(
                                   wlwinds[0], wlwinds[1]))
 
@@ -201,12 +212,12 @@ def velprofile_fit_function(neid_filename, configfile,
         save_dict_to_pickle(korg_data_ref, korg_data_name)
 
     print("Resultdict", resultdict)
-    shutil.copy("utils.py", resultdict)
-    shutil.copy("model_functions.py", resultdict)
-    shutil.copy(configfile, resultdict)
-    print("Model functions copied sucessfully")
-    shutil.copy("Velocity_fitting_function.py", resultdict)
-    print("This code copied sucessfully")
+    # shutil.copy("utils.py", resultdict)
+    # shutil.copy("model_functions.py", resultdict)
+    # shutil.copy(configfile, resultdict)
+    # print("Model functions copied sucessfully")
+    # shutil.copy("Velocity_fitting_function.py", resultdict)
+    # print("This code copied sucessfully")
 
     # km/s. This is the additional velocity adding to neid spectra.
     neid_data_dict = defaultdict(list)
@@ -253,11 +264,17 @@ def velprofile_fit_function(neid_filename, configfile,
             fullpath = os.path.join(resultdict, neid_filename)
             if planet is not None:
                 bjd = fits.getheader(fullpath, ext=12)['CCFJDMOD']
-                P = float(planet[0]) # days
-                K = float(planet[1]) # km/s
-                omega = 2*np.pi/P
-                dead_velocity = K * np.sin(omega * bjd)
-            
+                P = planet[:-1] # days
+                sin = 0
+                print(f"t={bjd}, P={P}")
+                for p in P:
+                    omega= 2*np.pi/p
+                    sin += np.sin(omega*bjd)
+                K = float(planet[-1]) # km/s
+                print(f"K={K}")
+                # omega = 2*np.pi/P
+                dead_velocity = K * sin # np.sin(omega * bjd)
+                print("Dead_velocity", dead_velocity)
             inject_vel_neidata(fullpath, dead_velocity)
             dead_velocity = 0
             print("Using the file", fullpath)
@@ -289,14 +306,21 @@ def velprofile_fit_function(neid_filename, configfile,
     param_pos = np.array(['r', 'r', 'r'])
 
     # ref_res = None
+    # print("This trial is without reference residue")
     # profile = 'poly'
     if profile == 'poly':
         if pca:
             init_params3 = np.array([0, 0, 0, 0])
             # init_params3 = np.array([-1.29939303, -0.35665408,  0.03996642, -0.00286621])*2
+            # param_pos = np.array(['p', 'p', 'p', 'v'])
+            # lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
+            # upper_bounds = [np.inf, np.inf, np.inf, np.inf]
+
+            # Two parameters
             param_pos = np.array(['p', 'p', 'p', 'v'])
             lower_bounds = [-np.inf, -np.inf, -np.inf, -np.inf]
             upper_bounds = [np.inf, np.inf, np.inf, np.inf]
+
             bounds = np.array([lower_bounds,
                                upper_bounds]).T
         else:
@@ -514,7 +538,8 @@ def velprofile_fit_function(neid_filename, configfile,
 
         # Process to plot the fitted spectra
         # Uncomment this if you want plot
-
+        # save_dict_to_pickle(neid_data_dict, resultdict+"/neid_data_dict.pkl")
+        # save_dict_to_pickle(korg_spectra, resultdict+"/korg_spectra_dict.pkl")
         # plotting_spectra(neid_data_dict,
         #                  korg_spectra, resultdict+"/Fitted_spectra.pdf",
         #                  ref_spec=ref_res,
@@ -604,7 +629,8 @@ def read_args(raw_args=None):
                         default=0.0, help='Dead velocity')
     parser.add_argument('--planet', type=float,
                         default=None, help='Planet parametes such as period and amplitude [P, K]',
-                        nargs="+")
+                       nargs="+")
+
 
     parser.add_argument('--purpose', type=str,
                         default='minimize', help='Purpose. (minimize, chi2, both)')
@@ -629,8 +655,8 @@ def main(raw_args=None):
     # ref_fname = "neidL2_20201212T172936.fits"
 
     # Parse args
-    parser = read_args(raw_args)
-    args = parser.parse_args()
+    # parser = read_args(raw_args)
+    args = read_args(raw_args)
     # print(args)
     # Unpack WL window
     # wl_wind1, wl_wind2 = args.WL
