@@ -70,14 +70,36 @@ def reconstruct_params(P):
     #     -1.14648246759313,
     #     0.11264740019457169
     #     ])
-    A = np.array([[-0.04287715757435157, 0.05372485611503212, 0.02930869611959398],
-                  [0.038819627859144924, 0.0015364590207488983, 0.05397474027581484], 
-                  [-0.0076783534791742625, -0.009284848285410607, 0.005786718230432543]])
+    # A = np.array([[-0.04287715757435157, 0.05372485611503212, 0.02930869611959398],
+    #               [0.038819627859144924, 0.0015364590207488983, 0.05397474027581484], 
+    #               [-0.0076783534791742625, -0.009284848285410607, 0.005786718230432543]])
+    # A = np.array([[-0.048414070810739125, 0.03938177096246131],
+    #               [0.05719710581851715, -0.026118602142547544],
+    #               [-0.013522976140415411, 0.0038624258190141985]]) 
+
+    A = np.array([
+        [-0.04841407081073912, 0.039381770962461295, 0.06785074438722505],
+        [0.05719710581851717, -0.02611860214254751, 0.01987735957057945],
+        [-0.013522976140415413, 0.003862425819014218, -0.01746104806846339],
+        ])
+
+    # mu = np.array([
+    #     0.6789978900546851,
+    #     -1.9016249932538416,
+    #     -1.138065025442601
+    # ])
+    # mu = np.array([
+    #     0.48908798806821546,
+    #     -1.7120641251406792,
+    #     -1.1760498280621112
+    #     ])
+
     mu = np.array([
-        0.6789978900546851,
-        -1.9016249932538416,
-        -1.138065025442601
-    ])
+        0.48908798806821546,
+        -1.7120641251406792,
+        -1.1760498280621112
+        ])
+
     P = np.atleast_2d(P)
     X = mu + P @ A.T
     # print("in function", X, P @ A.T, mu)
@@ -266,7 +288,9 @@ def array_to_key(arr, tol=1e-10):
 
 
 
-def residue_profile(neid_data, synt_spectra=None,
+def residue_profile(neid_data,
+                    config=None,
+                    synt_spectra=None,
                     raise_cache=None,
                     fall_cache=None,
                     param_pos=np.array(['r','f']),
@@ -327,19 +351,25 @@ def residue_profile(neid_data, synt_spectra=None,
     def cached_synthesis(raise_params_key, fall_params_key):
         raise_params = np.array(raise_params_key, dtype=float)
         print("Synthesise {} {}".format(raise_params_key, fall_params_key))
+        if config is not None:
+            traise = float(config['stellar_params']['traise'])
+            tfall = float(config['stellar_params']['tfall'])
+            stellar_params_raise = {'temp': traise}
+            stellar_params_fall = {'temp': tfall}
         spectra, cont = synt_spectra_for_wavelength(raise_params,
                                                     neid_wl_array,
                                                     synt_spectra=synt_spectra,
+                                                    stellar_params=stellar_params_raise,
                                                     cont_divide=False,
                                                     profile=profile)
         
         if fall_params_key is not None:
             fall_params = np.array(fall_params_key, dtype=float)
-            stellar_params = {'temp':5321}
+            # stellar_params = {'temp':5321}
             fall_spectra, fall_cont = synt_spectra_for_wavelength(fall_params,
                                                                   neid_wl_array,
                                                                   synt_spectra=synt_spectra,
-                                                                  stellar_params=stellar_params,
+                                                                  stellar_params=stellar_params_fall,
                                                                   cont_divide=False,
                                                                   profile=profile)
             # plt.figure()
@@ -441,21 +471,24 @@ def residue_profile(neid_data, synt_spectra=None,
                 fall_spectra = CubicSpline(cache_wl, fall_spectra, extrapolate=True)(neid_wl_array)
                 fall_cont = CubicSpline(cache_wl, fall_cont, extrapolate=True)(neid_wl_array)
             else:
+                print("Nothin saving to save space")
+
                 fall_key = tuple(np.asarray(fall_params, dtype=float).tolist())
                 raise_spectra, raise_cont, fall_spectra, fall_cont = cached_synthesis(raise_key, fall_key)
-                primary_hdu = fits.PrimaryHDU()
-                hdu_raise_spe = fits.ImageHDU(data=raise_spectra, name="RAISE_SPEC")
-                hdu_raise_cont = fits.ImageHDU(data=raise_cont, name="RAISE_CONT")
-                hdu_fall_spe = fits.ImageHDU(data=fall_spectra, name="FALL_SPEC")
-                hdu_fall_cont = fits.ImageHDU(data=fall_cont, name="FALL_CONT")
-                hdu_wl = fits.ImageHDU(data=neid_wl_array, name="WAVE")
-                hdul = fits.HDUList([primary_hdu,
-                                     hdu_raise_spe,
-                                     hdu_raise_cont,
-                                     hdu_fall_spe,
-                                     hdu_fall_cont,
-                                     hdu_wl])
-                hdul.writeto(cache_fullpath, overwrite=True)
+                # primary_hdu = fits.PrimaryHDU()
+                # hdu_raise_spe = fits.ImageHDU(data=raise_spectra, name="RAISE_SPEC")
+                # hdu_raise_cont = fits.ImageHDU(data=raise_cont, name="RAISE_CONT")
+                # hdu_fall_spe = fits.ImageHDU(data=fall_spectra, name="FALL_SPEC")
+                # hdu_fall_cont = fits.ImageHDU(data=fall_cont, name="FALL_CONT")
+                # hdu_wl = fits.ImageHDU(data=neid_wl_array, name="WAVE")
+                # hdul = fits.HDUList([primary_hdu,
+                #                      hdu_raise_spe,
+                #                      hdu_raise_cont,
+                #                      hdu_fall_spe,
+                #                      hdu_fall_cont,
+                #                      hdu_wl])
+                # hdul.writeto(cache_fullpath, overwrite=True)
+
                 # print("Written cache", cache_fullpath)
             # plt.figure()
             # plt.plot(neid_wl_array, raise_spectra / (raise_cont + fall_cont))
