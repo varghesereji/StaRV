@@ -44,15 +44,24 @@ Korg = jl.Korg
 
 
 def expand_parabolas(parabola_params,
-                    about=0.5
+                     about=0.5,
+                     order=2
                     ):
     A, D = parabola_params
-
-    R2 = A / (-8 * about ** (3/2))
-    R1 = 3 * A / (4 * np.sqrt(about))
-    R0 = 3 * A * np.sqrt(about) / 8 + D
-
-    return R2, R1, R0
+    if order == 2:
+        R2 = A / (-8 * about ** (3/2))
+        R1 = 3 * A / (4 * np.sqrt(about))
+        R0 = 3 * A * np.sqrt(about) / 8 + D
+        return R2, R1, R0
+    elif order == 3:
+        R3 = A/ ( 16 * about**(5/2))
+        R2 = -5 * A / (16 * about**(3/2))
+        R1 = 15 * A / (16 * about**(1/2))
+        R0 = 5 * A * np.sqrt(about) / 16 + D
+        
+        return R3, R2, R1, R0
+    else:
+        raise ValueError("Order should be either 2 or 3")
 
 
 def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
@@ -64,7 +73,7 @@ def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', op
                                         ref_velocity=dead_velocity)
     params = reference_params['params']
     # print("Reference", neid_data_dict)
-    param_pos = np.array(['r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
+    param_pos = np.array(['r', 'r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
     # param_pos = np.array(['r']) 
     residue_dict = residue_profile(neid_data=neid_data_dict,
                                    synt_spectra=None,
@@ -244,7 +253,9 @@ def velprofile_fit_function(neid_filename, configfile,
         with open(ref_param_file, "rb") as ref:
             ref_parabola = pickle.load(ref)
         ref_parabola_params = ref_parabola['params']
-        R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params)
+        R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params,
+                                                  order=2)
+        # R3_ref, R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params, order=3)
         print("Parabola parameters expanded to", R2_ref, R1_ref, R0_ref)
         reference_params['params'] = np.array([R2_ref, R1_ref, R0_ref])
         ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)

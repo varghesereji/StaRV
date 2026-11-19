@@ -1,0 +1,22 @@
+2026-10-15 11:41:35,200 - The reference Korg data already exists. Calling that one
+2026-10-15 11:41:35,204 - Resultdict
+2026-10-15 11:41:35,204 - /home/varghese/Desktop/Stellar_activity_mitigation/58_3rdorder/Result_3rdorder/Result_dir_neidL2_20211030T181527_3700-9000
+2026-10-15 11:41:35,206 - Traceback (most recent call last):
+2026-10-15 11:41:35,206 - File "/home/varghese/Desktop/Stellar_activity_mitigation/src/Velocity_fitting_function.py", line 727, in main
+2026-10-15 11:41:35,206 - order = int(args.orders)
+2026-10-15 11:41:35,206 - ValueError
+2026-10-15 11:41:35,206 - :
+2026-10-15 11:41:35,206 - invalid literal for int() with base 10: 'F'
+2026-10-15 11:41:35,206 - During handling of the above exception, another exception occurred:
+2026-10-15 11:41:35,207 - Traceback (most recent call last):
+2026-10-15 11:41:35,207 - File "/home/varghese/Desktop/Stellar_activity_mitigation/src/Velocity_fitting_function.py", line 760, in <module>
+2026-10-15 11:41:35,207 - main()
+2026-10-15 11:41:35,207 - File "/home/varghese/Desktop/Stellar_activity_mitigation/src/Velocity_fitting_function.py", line 735, in main
+2026-10-15 11:41:35,207 - velprofile_fit_function(
+2026-10-15 11:41:35,207 - File "/home/varghese/Desktop/Stellar_activity_mitigation/src/Velocity_fitting_function.py", line 257, in velprofile_fit_function
+2026-10-15 11:41:35,208 - R3_ref, R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params, order=3)
+2026-10-15 11:41:35,208 - File "/home/varghese/Desktop/Stellar_activity_mitigation/src/Velocity_fitting_function.py", line 59, in expand_parabolas
+2026-10-15 11:41:35,208 - R1 = 15 * A / (16 * x**(1/2))
+2026-10-15 11:41:35,208 - NameError
+2026-10-15 11:41:35,208 - :
+2026-10-15 11:41:35,208 - name 'x' is not defined
