@@ -64,7 +64,7 @@ def expand_parabolas(parabola_params,
         raise ValueError("Order should be either 2 or 3")
 
 
-def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
+def make_ref_residue(reference_params, datadir, korg_data_ref, config,cache_dir='.', opdir='data/Reference_dir',dead_velocity=0):
 
     fname = reference_params['fname']
     print(f"Calling reference data {fname}")
@@ -76,6 +76,7 @@ def make_ref_residue(reference_params, datadir, korg_data_ref, cache_dir='.', op
     param_pos = np.array(['r', 'r', 'r', 'r'])  # Uncomment this when you are using 3 parameters.
     # param_pos = np.array(['r']) 
     residue_dict = residue_profile(neid_data=neid_data_dict,
+                                   config=config,
                                    synt_spectra=None,
                                    area_fact=0.5,
                                    scale_fact=-1,
@@ -145,7 +146,7 @@ def velprofile_fit_function(neid_filename, configfile,
     if basename == 'Korg':
         resultsubdir_prefix += "_{}_snr{}_".format(round(dead_velocity, 7),
                                                    snr)
-    print("Planet", planet)
+        print("Planet", planet)
     if abs(dead_velocity) != 0 and planet is None:
         master_subdir += "_{}".format(round(dead_velocity, 7))
     elif planet is not None:
@@ -169,16 +170,16 @@ def velprofile_fit_function(neid_filename, configfile,
     # Reference
     if reference_params['fname'] == 'config':
         reference_params['fname'] = config['reference']['REFERENCEFILE']
-    
+        
     if order is not None:
         resultdict = os.path.join(resultdict, "Order_{}".format(order))
-    # print(fullpath)
+        # print(fullpath)
     if not os.path.exists(resultdict):
         os.makedirs(resultdict)
         print(resultdict, "Directory created successfully!")
     else:
         print(resultdict, "Directory already exists!")
-    
+        
     logging.basicConfig(filename=resultdict+"/least_squares.log",
                         level=logging.INFO, format="%(asctime)s - %(message)s")
 
@@ -200,7 +201,7 @@ def velprofile_fit_function(neid_filename, configfile,
     if logfilesave == 'T':
         sys.stdout = StreamToLogger(logging.getLogger(), logging.INFO)
         sys.stderr = StreamToLogger(logging.getLogger(), logging.ERROR)
-    
+        
     result_filename = os.path.join(resultdict, "fitted_params.pkl")
 
     maindir = config['data_dir']['NEID_DIR']
@@ -233,14 +234,16 @@ def velprofile_fit_function(neid_filename, configfile,
     if neid_filename == 'all':
         files_list = [f for f in os.listdir(maindir) if f.endswith(".fits")]
         # files_list = os.\
-        # listdir(maindir)
+            # listdir(maindir)
     else:
         files_list = [neid_filename]
 
     # Making Reference residue
     reference_trial = False
-
-    if reference_params['fname'] == neid_filename:
+    print("reference_params_fname", reference_params['fname'])
+    print("neid_filename", neid_filename)
+    if os.path.basename(reference_params['fname']) == neid_filename:
+        print("This trial is to generate reference template")
         if profile == 'poly':
             print("Reference file should fit for parabola")
             sys.exit()
@@ -248,6 +251,7 @@ def velprofile_fit_function(neid_filename, configfile,
             print("This trial to make parameters for reference data")
             reference_trial = True
             ref_res = None
+            maindir = os.path.dirname(reference_params['fname'])
     else:
         ref_param_file = config['reference']['REFERENCE_RESULT']
         with open(ref_param_file, "rb") as ref:
@@ -255,10 +259,10 @@ def velprofile_fit_function(neid_filename, configfile,
         ref_parabola_params = ref_parabola['params']
         R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params,
                                                   order=2)
-        # R3_ref, R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params, order=3)
+            # R3_ref, R2_ref, R1_ref, R0_ref = expand_parabolas(ref_parabola_params, order=3)
         print("Parabola parameters expanded to", R2_ref, R1_ref, R0_ref)
         reference_params['params'] = np.array([R2_ref, R1_ref, R0_ref])
-        ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
+        ref_res = make_ref_residue(reference_params, maindir, korg_data_ref, config=config, cache_dir=config['data_dir']['CACHE_DIR'],dead_velocity=0)
 
     for onefile in files_list:
         if onefile == "Korg":
@@ -281,9 +285,9 @@ def velprofile_fit_function(neid_filename, configfile,
                 for p in P:
                     omega= 2*np.pi/p
                     sin += np.sin(omega*bjd)
-                K = float(planet[-1]) # km/s
-                print(f"K={K}")
-                # omega = 2*np.pi/P
+                    K = float(planet[-1]) # km/s
+                    print(f"K={K}")
+                    # omega = 2*np.pi/P
                 dead_velocity = K * sin # np.sin(omega * bjd)
                 print("Dead_velocity", dead_velocity)
             inject_vel_neidata(fullpath, dead_velocity)
@@ -298,7 +302,7 @@ def velprofile_fit_function(neid_filename, configfile,
                 return
             # save_dict_to_pickle(neid_data_dict, os.path.join(resultdict, basename + ".pkl"))
             # sys.exit()
-    # Calling lines
+            # Calling lines
     lines_file_path = '/home/varghese/Desktop/Stellar_activity_mitigation'
     solar_lines_fname = 'FullNeidRange.csv'
     # line_dict = calling_linelist(os.path.join(lines_file_path,
@@ -356,19 +360,20 @@ def velprofile_fit_function(neid_filename, configfile,
         upper_bounds = [0, np.inf]
         bounds = np.array([lower_bounds,
                            upper_bounds]).T
-    print("Profile: {}".format(profile))
-        
+        print("Profile: {}".format(profile))
+    # print(neid_data_dict)
     residue_vel = residue_profile(neid_data=neid_data_dict,
-                          synt_spectra=None,
-                          area_fact=0.5,
-                          scale_fact=-1,
-                          pca_comp=pca,
-                          param_pos=param_pos,
-                          profile=profile,
-                          ip_data=ip_data,
-                          ref_res=ref_res,
-                          cache_dir=config['data_dir']['CACHE_DIR'],
-                          algorithm=algorithm)
+                                  config=config,
+                                  synt_spectra=None,
+                                  area_fact=0.5,
+                                  scale_fact=-1,
+                                  pca_comp=pca,
+                                  param_pos=param_pos,
+                                  profile=profile,
+                                  ip_data=ip_data,
+                                  ref_res=ref_res,
+                                  cache_dir=config['data_dir']['CACHE_DIR'],
+                                  algorithm=algorithm)
     print(residue_vel)
     if (purpose == 'minimize') or (purpose == 'both'):
         if not os.path.isfile(result_filename):
@@ -395,7 +400,7 @@ def velprofile_fit_function(neid_filename, configfile,
                         (-100, 100),
                         (-100, 100),
                         (-100, 100)
-                        ]
+                    ]
                     result = differential_evolution(
                         residue_vel,
                         bounds=bounds,
@@ -406,7 +411,7 @@ def velprofile_fit_function(neid_filename, configfile,
                 residue_ccf_fn = partial(residue_ccf,
                                          neid_fname=fullpath,
                                          opdir=resultdict)
-                                         
+                
                 result = least_squares(residue_ccf_fn,
                                        init_params3,
                                        bounds=(lower_bounds, upper_bounds),
@@ -425,6 +430,7 @@ def velprofile_fit_function(neid_filename, configfile,
             print("Calculating_derivative")
             
             result_fun = residue_profile(neid_data=neid_data_dict,
+                                         config=config,
                                          synt_spectra=None,
                                          # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                                          area_fact=0.5,
@@ -445,7 +451,7 @@ def velprofile_fit_function(neid_filename, configfile,
             pca_array_result = result.x
             
             print("Fitted_params for third order", result.x)
-        
+            
             additional_constant = pca_array_result[-1]
             if pca:
                 pca_comps = pca_array_result[:-1]
@@ -454,7 +460,7 @@ def velprofile_fit_function(neid_filename, configfile,
                 profile_params[-1] += additional_constant
             else:
                 profile_params = pca_array_result
-            
+                
             fitted_params3 = profile_params
             errorvals, cov_matrix = calculate_parameter_errors(result)
 
@@ -471,11 +477,11 @@ def velprofile_fit_function(neid_filename, configfile,
             print("The result already exist. Calling it to plot")
             with open(result_filename, 'rb') as opfile:
                 fitted_params3 = pickle.load(opfile)['profile_params']
-            '''
-            print("Making derivative")
+                '''
+                print("Making derivative")
             with open(resultdict+"/least_squares_op.pkl", 'rb') as lsq_res:
                 lsq_resultdict = pickle.load(lsq_res)
-            result_fun = residue_profile(neid_data=neid_data_dict,
+                result_fun = residue_profile(neid_data=neid_data_dict,
                                          synt_spectra=None,
                                          # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                                          area_fact=0.5,
@@ -490,9 +496,9 @@ def velprofile_fit_function(neid_filename, configfile,
                                          algorithm=algorithm)
             with open(os.path.join(resultdict, "least_squares_op.pkl"), 'rb') as res:
                 result = pickle.load(res)
-            # fitted_params3 = np.concatenate((fitted_params3
+                # fitted_params3 = np.concatenate((fitted_params3
             dot_product = calculate_dotproduct_wrt_vel(result, result_fun, resultdict)
-            '''
+                '''
 
         print("profile params", fitted_params3)
         if reference_trial:
@@ -513,13 +519,14 @@ def velprofile_fit_function(neid_filename, configfile,
             print("Removing", fullpath)
             if os.path.exists(fullpath):
                 os.remove(fullpath)
-            synt_spectra_fname = "Synt_"+neid_filename
+                synt_spectra_fname = "Synt_"+neid_filename
             if os.path.exists(os.path.join(resultdict, synt_spectra_fname)):
                 os.remove(os.path.join(resultdict, synt_spectra_fname))
-        # sys.exit(1)
+                # sys.exit(1)
         korg_spectra =  residue_profile(neid_data=neid_data_dict,
-                          synt_spectra=None,
-                          # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
+                                        config=config,
+                                        synt_spectra=None,
+                                        # ref_params=np.array([ 0.6493511 , -1.28690028, -1.14780551,  0.03885628]),
                           area_fact=0.5,
                           scale_fact=-1,
                           pca_comp=False,
@@ -569,12 +576,12 @@ def velprofile_fit_function(neid_filename, configfile,
                 chi2_val = np.sum(residue_array**2)
                 red_chi2_val = np.array([chi2_val/(np.size(residue_array)-1)])
                 chi2_array = np.concatenate((chi2_array, red_chi2_val))
-            plt.figure(figsize=(16, 9))
-            plt.plot(vel_array, chi2_array)
-            plt.xlabel("Velocities (km/s)")
-            plt.ylabel("Reduced chi2")
-            plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
-        
+                plt.figure(figsize=(16, 9))
+                plt.plot(vel_array, chi2_array)
+                plt.xlabel("Velocities (km/s)")
+                plt.ylabel("Reduced chi2")
+                plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
+                
         if save_generated_syntspectra:
             x = np.linspace(0, 1, 56)
             vel_raise = generate_profile(fitted_params3, x)
@@ -597,12 +604,12 @@ def velprofile_fit_function(neid_filename, configfile,
             chi2_val = np.sum(residue_array**2)
             red_chi2_val = np.array([chi2_val / (np.size(residue_array)-1)])
             chi2_array = np.concatenate((chi2_array, red_chi2_val))
-        plt.figure(figsize=(16, 9))
-        plt.plot(vel_array, chi2_array)
-        plt.xlabel("Velocities (km/s)")
-        plt.ylabel("Reduced chi2")
-        plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
-    print("====================== The End ===============================")
+            plt.figure(figsize=(16, 9))
+            plt.plot(vel_array, chi2_array)
+            plt.xlabel("Velocities (km/s)")
+            plt.ylabel("Reduced chi2")
+            plt.savefig(os.path.join(resultdict, "Chi2_plot.pdf"))
+            print("====================== The End ===============================")
     # print("Running Result")
     # subprocess.run([sys.executable,
     #                 "Result_analysis.py",
